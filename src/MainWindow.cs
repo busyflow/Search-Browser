@@ -1635,7 +1635,7 @@ namespace SearchBrowser
 
         private async Task CheckForUpdatesAsync()
         {
-            const string repo = "jacqu/SearchBrowser";
+            const string repo = "busyflow/Search-Browser";
             const string currentVersion = "1.0.0";
             try
             {
