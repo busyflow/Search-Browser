@@ -1639,6 +1639,7 @@ namespace SearchBrowser
             const string currentVersion = "1.0.0";
             try
             {
+                System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
                 string json = await Task.Run(() =>
                 {
                     using (var wc = new System.Net.WebClient())
