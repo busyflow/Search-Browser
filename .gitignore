@@ -1,0 +1,8 @@
+Search.exe
+Search-Setup.exe
+payload.zip
+*.user
+*.suo
+.vs/
+bin/
+obj/
