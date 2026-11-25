@@ -106,7 +106,8 @@ namespace SearchBrowser
         private Border _extPopupHost;
         private WebView2 _extPopupWebView;
 
-        // Floating Omnibox / Tab Switcher (Ctrl+L / Ctrl+K)
+        // Floating Omnibox / Tab Switcher (Ctrl+L / Ctrl+K / Ctrl+T)
+        private System.Windows.Controls.Primitives.Popup _omniboxPopup;
         private Grid _omniboxOverlay;
         private Border _omniboxCard;
         private Border _siteChipBorder;
@@ -837,8 +838,8 @@ namespace SearchBrowser
         {
             _omniboxOverlay = new Grid
             {
-                Background = Palette.OverlayScrim,
-                Visibility = Visibility.Collapsed
+                Background = Brushes.Transparent,
+                Visibility = Visibility.Visible
             };
             _omniboxOverlay.MouseLeftButtonDown += (s, e) =>
             {
@@ -918,7 +919,20 @@ namespace SearchBrowser
             centerContainer.Children.Add(_omniboxOffersBorder);
 
             _omniboxOverlay.Children.Add(centerContainer);
-            hostGrid.Children.Add(_omniboxOverlay);
+            _omniboxPopup = new System.Windows.Controls.Primitives.Popup
+            {
+                Child = _omniboxOverlay,
+                PlacementTarget = _pageCardBorder,
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Center,
+                AllowsTransparency = true,
+                StaysOpen = false,
+                PopupAnimation = System.Windows.Controls.Primitives.PopupAnimation.Fade
+            };
+            _omniboxPopup.Closed += (s, e) =>
+            {
+                if (_activeTab != null && _activeTab.WebView != null)
+                    _activeTab.WebView.Focus();
+            };
         }
 
         private void BuildDrawerOverlay(Grid hostGrid)
@@ -1185,7 +1199,7 @@ namespace SearchBrowser
                 bool alt = json.Contains("\"alt\":true");
                 if (key == "escape")
                 {
-                    if (_omniboxOverlay.Visibility == Visibility.Visible) HideOmnibox();
+                    if (_omniboxPopup != null && _omniboxPopup.IsOpen) HideOmnibox();
                     else if (_peekOverlay.Visibility == Visibility.Visible) ClosePeekCard();
                     else if (_extPopupOverlay.Visibility == Visibility.Visible) CloseExtensionPopup();
                     else if (_drawerOverlay.Visibility == Visibility.Visible) _drawerOverlay.Visibility = Visibility.Collapsed;
@@ -2107,7 +2121,7 @@ namespace SearchBrowser
                 sq.MouseEnter += (s, e) => { if (captured != _activeTab) sq.Background = Palette.Hover; };
                 sq.MouseLeave += (s, e) => { if (captured != _activeTab) sq.Background = Brushes.Transparent; };
                 sq.MouseLeftButtonDown += async (s, e) => await SelectTabAsync(captured);
-                sq.MouseRightButtonUp += (s, e) => ShowTabContextMenu(captured);
+                sq.MouseRightButtonUp += (s, e) => { e.Handled = true; ShowTabContextMenu(captured); };
                 _pinsPanel.Children.Add(sq);
             }
 
@@ -2252,18 +2266,17 @@ namespace SearchBrowser
 
         private void ShowSpacesMenu(FrameworkElement anchor)
         {
-            var menu = new ContextMenu();
+            StackPanel stack;
+            var popup = CreateThemedPopupMenu(anchor, System.Windows.Controls.Primitives.PlacementMode.Top, out stack);
             for (int i = 0; i < Store.Spaces.Count; i++)
             {
                 var sp = Store.Spaces[i];
                 int idx = i;
                 bool isCur = string.Equals(sp.Id, Store.Prefs.ActiveSpaceId, StringComparison.OrdinalIgnoreCase);
-                string prefix = isCur ? "✓  " : "     ";
-                string shortcut = i < 9 ? "   Alt+" + (i + 1) : "";
-                AddMenuItem(menu, prefix + sp.Name + shortcut, () => CycleSpace(idx));
+                AddPopupMenuItem(popup, stack, (isCur ? "✓  " : "     ") + sp.Name, i < 9 ? "Alt+" + (i + 1) : "", () => CycleSpace(idx));
             }
-            menu.Items.Add(new Separator());
-            AddMenuItem(menu, "New Space…", () =>
+            AddPopupSeparator(stack);
+            AddPopupMenuItem(popup, stack, "New Space…", "", () =>
             {
                 string name = PromptForText("New Space", "Enter a name for the new Space:", "Space " + (Store.Spaces.Count + 1));
                 if (!string.IsNullOrWhiteSpace(name))
@@ -2277,7 +2290,7 @@ namespace SearchBrowser
             var curSp = Store.Spaces.FirstOrDefault(s => string.Equals(s.Id, Store.Prefs.ActiveSpaceId, StringComparison.OrdinalIgnoreCase));
             if (curSp != null)
             {
-                AddMenuItem(menu, "Rename \"" + curSp.Name + "\"…", () =>
+                AddPopupMenuItem(popup, stack, "Rename \"" + curSp.Name + "\"…", "", () =>
                 {
                     string name = PromptForText("Rename Space", "Space name:", curSp.Name);
                     if (!string.IsNullOrWhiteSpace(name))
@@ -2288,11 +2301,94 @@ namespace SearchBrowser
                     }
                 });
             }
-            menu.Items.Add(new Separator());
-            AddMenuItem(menu, "Downloads", () => ShowDownloadsDrawer());
-            menu.PlacementTarget = anchor;
-            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Top;
-            menu.IsOpen = true;
+            AddPopupSeparator(stack);
+            AddPopupMenuItem(popup, stack, "Downloads", "Ctrl+J", () => ShowDownloadsDrawer());
+            popup.IsOpen = true;
+        }
+
+        private System.Windows.Controls.Primitives.Popup CreateThemedPopupMenu(FrameworkElement anchor, System.Windows.Controls.Primitives.PlacementMode placement, out StackPanel stack)
+        {
+            stack = new StackPanel { Orientation = Orientation.Vertical, MinWidth = 210 };
+            var card = new Border
+            {
+                Background = Palette.CardSurface,
+                BorderBrush = Palette.Hairline,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(5),
+                Child = stack,
+                Effect = new DropShadowEffect { BlurRadius = 20, ShadowDepth = 4, Opacity = 0.28 }
+            };
+            var popup = new System.Windows.Controls.Primitives.Popup
+            {
+                Child = card,
+                AllowsTransparency = true,
+                StaysOpen = false,
+                PopupAnimation = System.Windows.Controls.Primitives.PopupAnimation.Fade
+            };
+            if (anchor != null)
+            {
+                popup.PlacementTarget = anchor;
+                popup.Placement = placement;
+            }
+            else
+            {
+                popup.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            }
+            return popup;
+        }
+
+        private void AddPopupSeparator(StackPanel stack)
+        {
+            stack.Children.Add(new Border
+            {
+                Height = 1,
+                Background = Palette.Hairline,
+                Margin = new Thickness(6, 4, 6, 4)
+            });
+        }
+
+        private void AddPopupMenuItem(System.Windows.Controls.Primitives.Popup popup, StackPanel stack, string title, string shortcut, Action action)
+        {
+            var row = new Border
+            {
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(10, 6, 10, 6),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand
+            };
+            var dock = new DockPanel();
+            if (!string.IsNullOrEmpty(shortcut))
+            {
+                var sc = new TextBlock
+                {
+                    Text = shortcut,
+                    FontSize = 11.5,
+                    Foreground = Palette.Muted,
+                    Margin = new Thickness(16, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                DockPanel.SetDock(sc, Dock.Right);
+                dock.Children.Add(sc);
+            }
+            var lbl = new TextBlock
+            {
+                Text = title,
+                FontSize = 12.5,
+                Foreground = Palette.Ink,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            dock.Children.Add(lbl);
+            row.Child = dock;
+            row.MouseEnter += (s, e) => row.Background = Palette.Hover;
+            row.MouseLeave += (s, e) => row.Background = Brushes.Transparent;
+            row.MouseLeftButtonUp += (s, e) =>
+            {
+                e.Handled = true;
+                popup.IsOpen = false;
+                action();
+            };
+            stack.Children.Add(row);
         }
 
         private static string PromptForText(string title, string label, string defaultVal)
@@ -2519,7 +2615,7 @@ namespace SearchBrowser
                     CloseTab(captured);
                 }
             };
-            row.MouseRightButtonUp += (s, e) => ShowTabContextMenu(captured);
+            row.MouseRightButtonUp += (s, e) => { e.Handled = true; ShowTabContextMenu(captured); };
 
             return row;
         }
@@ -2578,34 +2674,35 @@ namespace SearchBrowser
                 e.Handled = true;
                 await SelectTabAsync(captured);
             };
-            pill.MouseRightButtonUp += (s, e) => ShowTabContextMenu(captured);
+            pill.MouseRightButtonUp += (s, e) => { e.Handled = true; ShowTabContextMenu(captured); };
             return pill;
         }
 
         private void ShowTabContextMenu(BrowserTab tab)
         {
-            var menu = new ContextMenu();
-            AddMenuItem(menu, tab.Pinned ? "Unpin Tab" : "Pin Tab (Top Grid)", () =>
+            StackPanel stack;
+            var popup = CreateThemedPopupMenu(null, System.Windows.Controls.Primitives.PlacementMode.MousePoint, out stack);
+            AddPopupMenuItem(popup, stack, tab.Pinned ? "Unpin Tab" : "Pin Tab", "", () =>
             {
                 tab.Pinned = !tab.Pinned;
                 RefreshTabRows();
                 SaveCurrentSession();
             });
-            AddMenuItem(menu, tab.KeepAwake ? "Allow Tab to Sleep" : "Keep This Site Awake", () =>
+            AddPopupMenuItem(popup, stack, tab.KeepAwake ? "Allow Tab to Sleep" : "Keep This Site Awake", "", () =>
             {
                 tab.KeepAwake = !tab.KeepAwake;
                 RefreshTabRows();
                 SaveCurrentSession();
             });
-            AddMenuItem(menu, "Put Tab to Sleep Now (Free RAM)", () =>
+            AddPopupMenuItem(popup, stack, "Put Tab to Sleep Now", "", () =>
             {
                 if (tab != _activeTab) tab.PutToSleep();
             });
-            AddMenuItem(menu, "Duplicate Tab (Ctrl+D)", () =>
+            AddPopupMenuItem(popup, stack, "Duplicate Tab", "Ctrl+D", () =>
             {
                 CreateAndSelectTab(tab.Url, false, tab.IsPrivate, tab.GroupId);
             });
-            AddMenuItem(menu, "Split with Current Page (Alt+Ctrl+N)", async () =>
+            AddPopupMenuItem(popup, stack, "Split with Current Page", "Alt+Ctrl+N", async () =>
             {
                 if (_activeTab != null && tab != _activeTab)
                 {
@@ -2616,7 +2713,7 @@ namespace SearchBrowser
                     RefreshTabRows();
                 }
             });
-            AddMenuItem(menu, "Copy Clean Link (Strip utm_ / fbclid / gclid — Ctrl+Shift+C)", () =>
+            AddPopupMenuItem(popup, stack, "Copy Clean Link", "Ctrl+Shift+C", () =>
             {
                 Clipboard.SetText(CleanLink.Clean(tab.Url));
             });
@@ -2624,11 +2721,11 @@ namespace SearchBrowser
             var spaceGroups = Store.TabGroups.Where(g => g.SpaceId == Store.Prefs.ActiveSpaceId).ToList();
             if (spaceGroups.Count > 0)
             {
-                menu.Items.Add(new Separator());
+                AddPopupSeparator(stack);
                 foreach (var g in spaceGroups)
                 {
                     var capG = g;
-                    AddMenuItem(menu, "Move to Folder: " + g.Name, () =>
+                    AddPopupMenuItem(popup, stack, "Move to Folder: " + g.Name, "", () =>
                     {
                         tab.GroupId = capG.Id;
                         SaveCurrentSession();
@@ -2637,7 +2734,7 @@ namespace SearchBrowser
                 }
                 if (!string.IsNullOrEmpty(tab.GroupId))
                 {
-                    AddMenuItem(menu, "Remove from Folder", () =>
+                    AddPopupMenuItem(popup, stack, "Remove from Folder", "", () =>
                     {
                         tab.GroupId = "";
                         SaveCurrentSession();
@@ -2646,9 +2743,9 @@ namespace SearchBrowser
                 }
             }
 
-            menu.Items.Add(new Separator());
-            AddMenuItem(menu, "Close Tab (Ctrl+W)", () => CloseTab(tab));
-            menu.IsOpen = true;
+            AddPopupSeparator(stack);
+            AddPopupMenuItem(popup, stack, "Close Tab", "Ctrl+W", () => CloseTab(tab));
+            popup.IsOpen = true;
         }
 
         private static void AddMenuItem(ContextMenu menu, string header, Action action)
@@ -2664,7 +2761,13 @@ namespace SearchBrowser
             _omniboxIsTabSwitcherMode = tabSwitcherMode;
             _omniboxIsNewTabMode = newTabMode && !tabSwitcherMode;
             _drawerOverlay.Visibility = Visibility.Collapsed;
-            _omniboxOverlay.Visibility = Visibility.Visible;
+            _omniboxCard.Background = Palette.Ground;
+            _omniboxCard.BorderBrush = Palette.Hairline;
+            _omniboxInput.Foreground = Palette.Ink;
+            _omniboxInput.CaretBrush = Palette.Ink;
+            _omniboxOffersBorder.Background = Palette.CardSurface;
+            _omniboxOffersBorder.BorderBrush = Palette.Hairline;
+            _omniboxPopup.IsOpen = true;
 
             if (tabSwitcherMode)
             {
@@ -2695,7 +2798,7 @@ namespace SearchBrowser
 
         private void HideOmnibox()
         {
-            _omniboxOverlay.Visibility = Visibility.Collapsed;
+            if (_omniboxPopup != null) _omniboxPopup.IsOpen = false;
             if (_activeTab != null && _activeTab.WebView != null)
                 _activeTab.WebView.Focus();
         }
@@ -2970,7 +3073,7 @@ namespace SearchBrowser
 
             if (e.Key == Key.Escape)
             {
-                if (_omniboxOverlay.Visibility == Visibility.Visible)
+                if (_omniboxPopup != null && _omniboxPopup.IsOpen)
                 {
                     HideOmnibox();
                     e.Handled = true;
