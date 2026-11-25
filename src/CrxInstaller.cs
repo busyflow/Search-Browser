@@ -48,6 +48,8 @@ namespace SearchBrowser
 
             if (crxBytes == null || crxBytes.Length < 16)
                 throw new Exception("The Chrome Web Store returned an empty response for ID: " + extId);
+            if (crxBytes.Length > 50 * 1024 * 1024)
+                throw new Exception("Extension package exceeds the 50 MB safety limit.");
 
             byte[] zipBytes = ExtractVerifiedZipFromCrx(crxBytes, extId);
             string destFolder = Path.Combine(Store.ExtensionsDir, extId);
@@ -59,7 +61,7 @@ namespace SearchBrowser
             try
             {
                 File.WriteAllBytes(tempZip, zipBytes);
-                ZipFile.ExtractToDirectory(tempZip, destFolder);
+                ExtractZipSafely(tempZip, destFolder);
             }
             finally
             {
@@ -67,6 +69,27 @@ namespace SearchBrowser
             }
 
             return RegisterUnpackedFolder(destFolder, extId);
+        }
+
+        private static void ExtractZipSafely(string zipPath, string destFolder)
+        {
+            string fullDestRoot = Path.GetFullPath(destFolder);
+            if (!fullDestRoot.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                fullDestRoot += Path.DirectorySeparatorChar;
+
+            using (var archive = ZipFile.OpenRead(zipPath))
+            {
+                foreach (var entry in archive.Entries)
+                {
+                    if (string.IsNullOrEmpty(entry.Name)) continue;
+                    string destPath = Path.GetFullPath(Path.Combine(destFolder, entry.FullName));
+                    if (!destPath.StartsWith(fullDestRoot, StringComparison.OrdinalIgnoreCase))
+                        throw new Exception("Blocked unsafe archive entry (path traversal): " + entry.FullName);
+                    string dir = Path.GetDirectoryName(destPath);
+                    if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                    entry.ExtractToFile(destPath, true);
+                }
+            }
         }
 
         public static ExtensionInfo RegisterUnpackedFolder(string folderPath, string explicitId = null)
@@ -129,6 +152,8 @@ namespace SearchBrowser
                 throw new Exception("Unsupported CRX version: " + version);
             }
 
+            if (zipStartOffset <= 12 || zipStartOffset >= crx.Length)
+                throw new Exception("Corrupt CRX payload offset.");
             int zipLen = crx.Length - zipStartOffset;
             byte[] zipBytes = new byte[zipLen];
             Buffer.BlockCopy(crx, zipStartOffset, zipBytes, 0, zipLen);

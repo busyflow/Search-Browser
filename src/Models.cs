@@ -236,7 +236,7 @@ namespace SearchBrowser
             SiteStylesEnabled = true;
             PeekEnabled = true;
             PinsOpenExternalInPeek = true;
-            BenchServerEnabled = true;
+            BenchServerEnabled = false;
             WindowsHelloForVault = false;
             PageAsCard = true;
             ShowBackBtn = true;

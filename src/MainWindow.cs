@@ -1192,7 +1192,7 @@ namespace SearchBrowser
         {
             if (_activeTab == null || !_activeTab.IsWebViewInitialized || _activeTab.WebView == null) return;
             if (string.IsNullOrEmpty(query)) return;
-            string escaped = query.Replace("\\", "\\\\").Replace("'", "\\'");
+            string escaped = query.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\u2028", "\\u2028").Replace("\u2029", "\\u2029");
             string back = forward ? "false" : "true";
             await _activeTab.WebView.CoreWebView2.ExecuteScriptAsync("window.find('" + escaped + "', false, " + back + ", true, false, true, false);");
         }
@@ -1651,6 +1651,148 @@ namespace SearchBrowser
                 DwmSetWindowAttribute(hwnd, 34, ref colorRef, sizeof(int));
             }
             catch { }
+            ApplyChromeThemeBrush();
+        }
+
+        private static Color ParseHexColor(string hex, Color fallback)
+        {
+            if (string.IsNullOrWhiteSpace(hex)) return fallback;
+            string s = hex.Trim().TrimStart('#');
+            if (s.Length != 6) return fallback;
+            try
+            {
+                byte r = Convert.ToByte(s.Substring(0, 2), 16);
+                byte g = Convert.ToByte(s.Substring(2, 2), 16);
+                byte b = Convert.ToByte(s.Substring(4, 2), 16);
+                return Color.FromRgb(r, g, b);
+            }
+            catch { return fallback; }
+        }
+
+        private static Color ToneThemeColor(Color c, bool dark, bool night, double intensity)
+        {
+            double r = c.R / 255.0, g = c.G / 255.0, b = c.B / 255.0;
+            if (night && !dark) { r = r * 0.9 + 0.08; g = g * 0.9 + 0.08; b = b * 0.9 + 0.08; }
+            double k = dark ? (night ? 0.8 : 0.42) : 1.0;
+            r *= k; g *= k; b *= k;
+            double inten = Math.Max(0.0, Math.Min(1.0, intensity));
+            if (inten < 0.999)
+            {
+                double br = dark ? (28.0 / 255.0) : 1.0;
+                double bg = dark ? (28.0 / 255.0) : 1.0;
+                double bb = dark ? (28.0 / 255.0) : 1.0;
+                r = r * inten + br * (1.0 - inten);
+                g = g * inten + bg * (1.0 - inten);
+                b = b * inten + bb * (1.0 - inten);
+            }
+            return Color.FromRgb(
+                (byte)Math.Round(Math.Max(0, Math.Min(1, r)) * 255),
+                (byte)Math.Round(Math.Max(0, Math.Min(1, g)) * 255),
+                (byte)Math.Round(Math.Max(0, Math.Min(1, b)) * 255));
+        }
+
+        private static double ExtractJsonNumber(string json, string key, double fallback)
+        {
+            if (string.IsNullOrEmpty(json)) return fallback;
+            var m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)");
+            double v;
+            if (m.Success && double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v))
+                return v;
+            return fallback;
+        }
+
+        private void ApplyChromeThemeBrush()
+        {
+            if (_topTabBarBorder == null || _sidebarBorder == null || Store.Prefs == null) return;
+            string th = (Store.Prefs.HomeThemeId ?? "off").Trim().ToLowerInvariant();
+            string tj = Store.Prefs.HomeTuningJson ?? "{}";
+            bool dark = Palette.IsDark;
+            double intensity = ExtractJsonNumber(tj, "intensity", 1.0);
+
+            if (string.IsNullOrEmpty(th) || th == "off")
+            {
+                Background = Palette.Frame;
+                _topTabBarBorder.Background = Palette.Frame;
+                _sidebarBorder.Background = Palette.Frame;
+                return;
+            }
+
+            Brush bgBrush = null;
+            if (th == "solid")
+            {
+                Color c = ParseHexColor(ExtractJsonValue(tj, "solid"), Color.FromRgb(0xE8, 0xDF, 0xD0));
+                bgBrush = new SolidColorBrush(ToneThemeColor(c, dark, false, intensity));
+            }
+            else if (th == "gradient")
+            {
+                Color cA = ParseHexColor(ExtractJsonValue(tj, "gradientA"), Color.FromRgb(0xE9, 0xB8, 0xA0));
+                Color cB = ParseHexColor(ExtractJsonValue(tj, "gradientB"), Color.FromRgb(0x8E, 0x86, 0xB8));
+                double angle = ExtractJsonNumber(tj, "angle", 150.0);
+                bgBrush = new LinearGradientBrush(
+                    ToneThemeColor(cA, dark, false, intensity),
+                    ToneThemeColor(cB, dark, false, intensity),
+                    angle);
+            }
+            else if (th == "custom")
+            {
+                string imgPath = Store.Prefs.HomeImagePath;
+                if (!string.IsNullOrEmpty(imgPath) && File.Exists(imgPath))
+                {
+                    try
+                    {
+                        var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                        bmp.BeginInit();
+                        bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                        bmp.UriSource = new Uri(imgPath, UriKind.Absolute);
+                        bmp.EndInit();
+                        bmp.Freeze();
+                        var ib = new ImageBrush(bmp) { Stretch = Stretch.UniformToFill, Opacity = Math.Max(0.25, Math.Min(1.0, intensity)) };
+                        bgBrush = ib;
+                    }
+                    catch { }
+                }
+            }
+            else if (th == "stickers")
+            {
+                string pack = (ExtractJsonValue(tj, "pack") ?? "space").ToLowerInvariant();
+                Color gc = Color.FromRgb(0x1E, 0x22, 0x38);
+                bool isNightPack = false;
+                if (pack == "space") { gc = Color.FromRgb(0x2B, 0x2E, 0x4A); isNightPack = true; }
+                else if (pack == "ocean") gc = Color.FromRgb(0xC9, 0xE6, 0xEA);
+                else if (pack == "plants") gc = Color.FromRgb(0xDE, 0xE8, 0xD5);
+                else if (pack == "cats") gc = Color.FromRgb(0xF3, 0xE4, 0xD8);
+                else if (pack == "dogs") gc = Color.FromRgb(0xEE, 0xE2, 0xCE);
+                else if (pack == "food") gc = Color.FromRgb(0xF6, 0xE8, 0xD5);
+                else if (pack == "music") gc = Color.FromRgb(0xE6, 0xDC, 0xEE);
+                else if (pack == "travel") gc = Color.FromRgb(0xDD, 0xE9, 0xF2);
+                else if (pack == "wonders") gc = Color.FromRgb(0xEB, 0xDF, 0xCE);
+                else if (pack == "search") gc = Color.FromRgb(0xE2, 0xE8, 0xF0);
+                bgBrush = new SolidColorBrush(ToneThemeColor(gc, dark, isNightPack, intensity));
+            }
+            else
+            {
+                // Scenic wall painting palette gradients
+                Color topC = Color.FromRgb(0xC6, 0xD8, 0xE4);
+                Color botC = Color.FromRgb(0x7D, 0x9B, 0x8E);
+                bool isNightWall = false;
+                if (th == "night" || th == "aurora") { topC = Color.FromRgb(0x16, 0x1E, 0x36); botC = Color.FromRgb(0x2A, 0x45, 0x58); isNightWall = true; }
+                else if (th == "dunes" || th == "desert" || th == "mesa") { topC = Color.FromRgb(0xE8, 0xC6, 0xA8); botC = Color.FromRgb(0xC4, 0x8B, 0x6B); }
+                else if (th == "sunset" || th == "savanna") { topC = Color.FromRgb(0xE9, 0xB2, 0x9C); botC = Color.FromRgb(0x8D, 0x76, 0x9E); }
+                else if (th == "forest" || th == "meadow" || th == "meadows" || th == "garden") { topC = Color.FromRgb(0xC9, 0xDF, 0xCB); botC = Color.FromRgb(0x6C, 0x94, 0x76); }
+                else if (th == "waves" || th == "fjord" || th == "coast" || th == "harbor" || th == "archipelago") { topC = Color.FromRgb(0xC3, 0xDF, 0xE6); botC = Color.FromRgb(0x5E, 0x8A, 0x9C); }
+                else if (th == "fog" || th == "tundra" || th == "peaks") { topC = Color.FromRgb(0xD8, 0xDF, 0xE6); botC = Color.FromRgb(0x8A, 0x99, 0xA8); }
+                bgBrush = new LinearGradientBrush(
+                    ToneThemeColor(topC, dark, isNightWall, intensity),
+                    ToneThemeColor(botC, dark, isNightWall, intensity),
+                    155.0);
+            }
+
+            if (bgBrush != null)
+            {
+                Background = bgBrush;
+                _topTabBarBorder.Background = Brushes.Transparent;
+                _sidebarBorder.Background = new SolidColorBrush(dark ? Color.FromArgb(46, 0, 0, 0) : Color.FromArgb(26, 255, 255, 255));
+            }
         }
 
         private async void OnWindowLoaded(object sender, RoutedEventArgs e)
@@ -1669,7 +1811,7 @@ namespace SearchBrowser
             {
                 var options = new CoreWebView2EnvironmentOptions
                 {
-                    AdditionalBrowserArguments = "--disable-features=msSmartScreenProtection --enable-smooth-scrolling"
+                    AdditionalBrowserArguments = "--enable-smooth-scrolling"
                 };
                 try
                 {
@@ -1872,6 +2014,7 @@ namespace SearchBrowser
             }
             else if (type == "historyOpen")
             {
+                if (tab.Url == null || !tab.Url.StartsWith("search://history", StringComparison.OrdinalIgnoreCase)) return;
                 string url = ExtractJsonValue(json, "url");
                 bool newTab = json.Contains("\"newTab\":true");
                 if (!string.IsNullOrEmpty(url))
@@ -1882,6 +2025,7 @@ namespace SearchBrowser
             }
             else if (type == "historyRemove")
             {
+                if (tab.Url == null || !tab.Url.StartsWith("search://history", StringComparison.OrdinalIgnoreCase)) return;
                 string url = ExtractJsonValue(json, "url");
                 if (!string.IsNullOrEmpty(url))
                 {
@@ -1891,15 +2035,23 @@ namespace SearchBrowser
             }
             else if (type == "historyClear")
             {
+                if (tab.Url == null || !tab.Url.StartsWith("search://history", StringComparison.OrdinalIgnoreCase)) return;
                 Store.History.Clear();
                 Store.SaveHistory();
                 tab.RenderHistoryTab();
             }
             else if (type == "cwsInstall")
             {
+                string pageHost = Address.DisplayHost(tab.Url);
+                if (!string.Equals(pageHost, "chromewebstore.google.com", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(pageHost, "chrome.google.com", StringComparison.OrdinalIgnoreCase))
+                    return;
                 string url = ExtractJsonValue(json, "url");
-                if (!string.IsNullOrEmpty(url))
+                string extId = CrxInstaller.ExtractExtensionId(url);
+                if (!string.IsNullOrEmpty(url) && !string.IsNullOrEmpty(extId))
                 {
+                    if (MessageBox.Show("Install Chrome extension \"" + extId + "\" from the Chrome Web Store?", "Search Extensions", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                        return;
                     try
                     {
                         var info = await CrxInstaller.InstallFromWebStoreAsync(url);
@@ -1923,6 +2075,10 @@ namespace SearchBrowser
             else if (type == "vaultFillUser")
             {
                 if (!Store.Prefs.FillInSignIns) return;
+                if (tab.Url == null || (!tab.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
+                    !tab.Url.StartsWith("http://localhost", StringComparison.OrdinalIgnoreCase) &&
+                    !tab.Url.StartsWith("http://127.0.0.1", StringComparison.OrdinalIgnoreCase)))
+                    return;
                 string user = ExtractJsonValue(json, "user");
                 string host = Address.DisplayHost(tab.Url);
                 var login = Store.GetLoginsForHost(host).FirstOrDefault(l => string.Equals(l.User, user, StringComparison.OrdinalIgnoreCase));
@@ -1935,12 +2091,16 @@ namespace SearchBrowser
             else if (type == "loginSubmitted")
             {
                 if (tab.IsPrivate || !Store.Prefs.OfferToSavePasswords) return;
-                string host = ExtractJsonValue(json, "host");
+                if (tab.Url == null || (!tab.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) &&
+                    !tab.Url.StartsWith("http://localhost", StringComparison.OrdinalIgnoreCase) &&
+                    !tab.Url.StartsWith("http://127.0.0.1", StringComparison.OrdinalIgnoreCase)))
+                    return;
+                string actualHost = Address.DisplayHost(tab.Url);
                 string user = ExtractJsonValue(json, "user");
                 string pass = ExtractJsonValue(json, "pass");
-                if (!string.IsNullOrEmpty(host) && !string.IsNullOrEmpty(user) && !string.IsNullOrEmpty(pass))
+                if (!string.IsNullOrEmpty(actualHost) && !string.IsNullOrEmpty(user) && !string.IsNullOrEmpty(pass))
                 {
-                    _pendingSaveHost = Store.NormalizeHost(host);
+                    _pendingSaveHost = Store.NormalizeHost(actualHost);
                     _pendingSaveUser = user;
                     _pendingSavePass = pass;
                     _passwordOfferText.Text = "Save password for " + user + " on " + _pendingSaveHost + " in Windows encrypted Vault?";
@@ -2079,16 +2239,19 @@ namespace SearchBrowser
             }
             else if (type == "navigate")
             {
+                if (!string.Equals(tab.Url, "about:blank", StringComparison.OrdinalIgnoreCase)) return;
                 string text = ExtractJsonValue(json, "text");
                 if (!string.IsNullOrWhiteSpace(text))
                     tab.Navigate(text);
             }
             else if (type == "openSettings")
             {
+                if (!string.Equals(tab.Url, "about:blank", StringComparison.OrdinalIgnoreCase)) return;
                 OpenOrSelectSettingsTab("general");
             }
             else if (type == "settingsAction")
             {
+                if (tab.Url == null || !tab.Url.StartsWith("search://settings", StringComparison.OrdinalIgnoreCase)) return;
                 string action = ExtractJsonValue(json, "action");
                 string arg = ExtractJsonValue(json, "arg");
                 string sec = ExtractJsonValue(json, "sec");
@@ -2167,6 +2330,7 @@ namespace SearchBrowser
                         if (tm.Success) Store.Prefs.HomeTuningJson = tm.Groups[1].Value;
                         Store.Prefs.HomeShuffle = shuf;
                         Store.SavePrefs();
+                        ApplyChromeThemeBrush();
                         foreach (var bt in _allTabs)
                         {
                             if (bt.Url == "about:blank" && bt.IsWebViewInitialized) bt.RenderBlankWall();
@@ -2180,6 +2344,7 @@ namespace SearchBrowser
                     Store.Prefs.BlankWallCustomValue = "";
                     if (Store.Prefs.HomeThemeId == "custom") Store.Prefs.HomeThemeId = "off";
                     Store.SavePrefs();
+                    ApplyChromeThemeBrush();
                     foreach (var bt in _allTabs) { if (bt.Url == "about:blank" && bt.IsWebViewInitialized) bt.RenderBlankWall(); }
                     settingsTab.RenderSettingsTab("themes", scrollY);
                     break;
@@ -2223,6 +2388,7 @@ namespace SearchBrowser
                                 Store.Prefs.BlankWallMode = "Image";
                                 Store.Prefs.BlankWallCustomValue = copied;
                                 Store.SavePrefs();
+                                ApplyChromeThemeBrush();
                                 foreach (var bt in _allTabs) { if (bt.Url == "about:blank" && bt.IsWebViewInitialized) bt.RenderBlankWall(); }
                                 settingsTab.RenderSettingsTab("themes", scrollY);
                             }
@@ -2579,7 +2745,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0010";
+            const string currentVersion = "0.0011";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -2592,7 +2758,8 @@ namespace SearchBrowser
                     }
                 });
                 string tag = ExtractJsonValue(json, "tag_name").TrimStart('v', 'V');
-                if (string.IsNullOrEmpty(tag) || tag == currentVersion)
+                string safeTag = Regex.Replace(tag ?? "", "[^0-9A-Za-z._-]", "");
+                if (string.IsNullOrEmpty(safeTag) || safeTag == currentVersion)
                 {
                     MessageBox.Show("You are on the latest version (v" + currentVersion + ").", "Search Updates", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
@@ -2600,13 +2767,19 @@ namespace SearchBrowser
                 var m = Regex.Match(json, "\"browser_download_url\"\\s*:\\s*\"([^\"]*Search-Setup\\.exe)\"");
                 if (!m.Success)
                 {
-                    MessageBox.Show("New version v" + tag + " is available on GitHub, but no Search-Setup.exe asset was found.", "Search Updates", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show("New version v" + safeTag + " is available on GitHub, but no Search-Setup.exe asset was found.", "Search Updates", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
-                if (MessageBox.Show("Update available: v" + tag + " (current: v" + currentVersion + ").\n\nDownload and install now?", "Search Updates", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                string dlUrl = m.Groups[1].Value;
+                if (!dlUrl.StartsWith("https://github.com/" + repo + "/", StringComparison.OrdinalIgnoreCase) &&
+                    !dlUrl.StartsWith("https://objects.githubusercontent.com/", StringComparison.OrdinalIgnoreCase))
                 {
-                    string dlUrl = m.Groups[1].Value;
-                    string setupPath = Path.Combine(Path.GetTempPath(), "Search-Setup-" + tag + ".exe");
+                    MessageBox.Show("Blocked untrusted update download URL.", "Search Updates", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                if (MessageBox.Show("Update available: v" + safeTag + " (current: v" + currentVersion + ").\n\nDownload and install now?", "Search Updates", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
+                {
+                    string setupPath = Path.Combine(Path.GetTempPath(), "Search-Setup-" + safeTag + ".exe");
                     await Task.Run(() =>
                     {
                         using (var wc = new System.Net.WebClient())
@@ -3515,6 +3688,14 @@ namespace SearchBrowser
                         return;
                     }
                     BeginPotentialCarry(captured, sq, e);
+                };
+                sq.MouseDown += (s, e) =>
+                {
+                    if (e.ChangedButton == MouseButton.Middle)
+                    {
+                        e.Handled = true;
+                        CloseTab(captured, true);
+                    }
                 };
                 sq.MouseRightButtonUp += (s, e) => { e.Handled = true; ShowTabContextMenu(captured); };
                 if (_justPinnedTabId == pin.Id)
@@ -4920,8 +5101,8 @@ namespace SearchBrowser
             if (_activeTab == null || !_activeTab.IsWebViewInitialized || _activeTab.WebView == null) return;
             string plain = Store.DecryptPassword(login);
             if (string.IsNullOrEmpty(plain)) return;
-            string uEsc = login.User.Replace("\\", "\\\\").Replace("'", "\\'");
-            string pEsc = plain.Replace("\\", "\\\\").Replace("'", "\\'");
+            string uEsc = login.User.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\u2028", "\\u2028").Replace("\u2029", "\\u2029");
+            string pEsc = plain.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\u2028", "\\u2028").Replace("\u2029", "\\u2029");
             string script = @"
 (function() {
   var pw = document.querySelector('input[type=""password""]');

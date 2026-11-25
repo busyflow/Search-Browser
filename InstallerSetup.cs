@@ -45,7 +45,7 @@ namespace SearchSetup
             });
             root.Children.Add(new System.Windows.Controls.TextBlock
             {
-                Text = "Native Windows x64 + WebView2 browser (v0.0010)\nDestination: %LOCALAPPDATA%\\Programs\\Search",
+                Text = "Native Windows x64 + WebView2 browser (v0.0011)\nDestination: %LOCALAPPDATA%\\Programs\\Search",
                 FontSize = 12.5,
                 Foreground = System.Windows.Media.Brushes.DimGray,
                 Margin = new Thickness(0, 0, 0, 16)
@@ -118,12 +118,17 @@ namespace SearchSetup
                 }
             }
 
+            string fullInstallRoot = Path.GetFullPath(installDir);
+            if (!fullInstallRoot.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                fullInstallRoot += Path.DirectorySeparatorChar;
             using (var archive = ZipFile.OpenRead(tempZip))
             {
                 foreach (var entry in archive.Entries)
                 {
                     if (string.IsNullOrEmpty(entry.Name)) continue;
-                    string destPath = Path.Combine(installDir, entry.FullName);
+                    string destPath = Path.GetFullPath(Path.Combine(installDir, entry.FullName));
+                    if (!destPath.StartsWith(fullInstallRoot, StringComparison.OrdinalIgnoreCase))
+                        throw new Exception("Blocked unsafe installer archive entry: " + entry.FullName);
                     Directory.CreateDirectory(Path.GetDirectoryName(destPath));
                     entry.ExtractToFile(destPath, true);
                 }

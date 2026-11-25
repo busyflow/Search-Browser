@@ -276,7 +276,7 @@ namespace SearchBrowser
             }
             catch
             {
-                return true;
+                return false;
             }
         }
     }

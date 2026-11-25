@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -36,7 +38,11 @@ namespace SearchBrowser
                 bool errored = false;
                 try
                 {
-                    using (var pipe = new NamedPipeServerStream("search-bench", PipeDirection.InOut, 4, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
+                    var pipeSec = new PipeSecurity();
+                    var currentUser = WindowsIdentity.GetCurrent().User;
+                    if (currentUser != null)
+                        pipeSec.AddAccessRule(new PipeAccessRule(currentUser, PipeAccessRights.FullControl, AccessControlType.Allow));
+                    using (var pipe = new NamedPipeServerStream("search-bench", PipeDirection.InOut, 4, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 4096, 4096, pipeSec))
                     {
                         await Task.Factory.FromAsync(pipe.BeginWaitForConnection, pipe.EndWaitForConnection, null);
                         if (token.IsCancellationRequested) break;
