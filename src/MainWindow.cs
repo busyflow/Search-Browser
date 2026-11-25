@@ -1705,111 +1705,12 @@ namespace SearchBrowser
 
         private void ApplyChromeThemeBrush()
         {
-            if (_topTabBarBorder == null || _sidebarBorder == null || Store.Prefs == null) return;
-            string th = (Store.Prefs.HomeThemeId ?? "off").Trim().ToLowerInvariant();
-            string tj = Store.Prefs.HomeTuningJson ?? "{}";
-            bool dark = Palette.IsDark;
-            double intensity = ExtractJsonNumber(tj, "intensity", 1.0);
-
-            if (string.IsNullOrEmpty(th) || th == "off")
-            {
-                Background = Palette.Frame;
-                _topTabBarBorder.Background = Palette.Frame;
-                _sidebarBorder.Background = Palette.Frame;
-                return;
-            }
-
-            Brush bgBrush = null;
-            if (th == "solid")
-            {
-                Color c = ParseHexColor(ExtractJsonValue(tj, "solid"), Color.FromRgb(0xE8, 0xDF, 0xD0));
-                bgBrush = new SolidColorBrush(ToneThemeColor(c, dark, false, intensity));
-            }
-            else if (th == "gradient")
-            {
-                Color cA = ParseHexColor(ExtractJsonValue(tj, "gradientA"), Color.FromRgb(0xE9, 0xB8, 0xA0));
-                Color cB = ParseHexColor(ExtractJsonValue(tj, "gradientB"), Color.FromRgb(0x8E, 0x86, 0xB8));
-                double angle = ExtractJsonNumber(tj, "angle", 150.0);
-                bgBrush = new LinearGradientBrush(
-                    ToneThemeColor(cA, dark, false, intensity),
-                    ToneThemeColor(cB, dark, false, intensity),
-                    angle);
-            }
-            else if (th == "custom")
-            {
-                string imgPath = Store.Prefs.HomeImagePath;
-                if (!string.IsNullOrEmpty(imgPath) && File.Exists(imgPath))
-                {
-                    try
-                    {
-                        var bmp = new System.Windows.Media.Imaging.BitmapImage();
-                        bmp.BeginInit();
-                        bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                        bmp.UriSource = new Uri(imgPath, UriKind.Absolute);
-                        bmp.EndInit();
-                        bmp.Freeze();
-                        var ib = new ImageBrush(bmp) { Stretch = Stretch.UniformToFill, Opacity = Math.Max(0.25, Math.Min(1.0, intensity)) };
-                        bgBrush = ib;
-                    }
-                    catch { }
-                }
-            }
-            else if (th == "stickers")
-            {
-                string pack = (ExtractJsonValue(tj, "pack") ?? "space").ToLowerInvariant();
-                Color gc = Color.FromRgb(0x1E, 0x22, 0x38);
-                bool isNightPack = false;
-                if (pack == "space") { gc = Color.FromRgb(0x2B, 0x2E, 0x4A); isNightPack = true; }
-                else if (pack == "roadtrip") gc = Color.FromRgb(0xF0, 0xDE, 0xC6);
-                else if (pack == "ocean") gc = Color.FromRgb(0xC9, 0xE6, 0xEA);
-                else if (pack == "jungle" || pack == "plants") gc = Color.FromRgb(0xDE, 0xE8, 0xD5);
-                else if (pack == "streetfood" || pack == "food") gc = Color.FromRgb(0xF6, 0xE8, 0xD5);
-                else if (pack == "retrotech") gc = Color.FromRgb(0xE8, 0xE2, 0xD5);
-                else if (pack == "weather") gc = Color.FromRgb(0xD8, 0xE6, 0xF2);
-                else if (pack == "music") gc = Color.FromRgb(0xE6, 0xDC, 0xEE);
-                else if (pack == "wonders") gc = Color.FromRgb(0xEB, 0xDF, 0xCE);
-                else if (pack == "search") gc = Color.FromRgb(0xE2, 0xE8, 0xF0);
-                bgBrush = new SolidColorBrush(ToneThemeColor(gc, dark, isNightPack, intensity));
-            }
-            else
-            {
-                // Scenic wall painting palette gradients (WALL_LIST in HomeThemesJs.cs)
-                Color topC = Color.FromRgb(0xC6, 0xD8, 0xE4);
-                Color botC = Color.FromRgb(0x7D, 0x9B, 0x8E);
-                bool isNightWall = false;
-                if (th == "northernlights" || th == "saturnrise" || th == "moonscape" || th == "cityatnight" || th == "night" || th == "aurora")
-                {
-                    topC = Color.FromRgb(0x16, 0x1E, 0x36);
-                    botC = Color.FromRgb(0x2A, 0x45, 0x58);
-                    isNightWall = true;
-                }
-                else if (th == "deserthighway" || th == "openroad" || th == "dunes" || th == "desert" || th == "mesa")
-                {
-                    topC = Color.FromRgb(0xE8, 0xC6, 0xA8);
-                    botC = Color.FromRgb(0xC4, 0x8B, 0x6B);
-                }
-                else if (th == "riceterraces" || th == "monsoonforest" || th == "forest" || th == "meadow")
-                {
-                    topC = Color.FromRgb(0xC9, 0xDF, 0xCB);
-                    botC = Color.FromRgb(0x6C, 0x94, 0x76);
-                }
-                else if (th == "coastalcliffs" || th == "mountainlake" || th == "waves" || th == "coast")
-                {
-                    topC = Color.FromRgb(0xC3, 0xDF, 0xE6);
-                    botC = Color.FromRgb(0x5E, 0x8A, 0x9C);
-                }
-                bgBrush = new LinearGradientBrush(
-                    ToneThemeColor(topC, dark, isNightWall, intensity),
-                    ToneThemeColor(botC, dark, isNightWall, intensity),
-                    155.0);
-            }
-
-            if (bgBrush != null)
-            {
-                Background = bgBrush;
-                _topTabBarBorder.Background = Brushes.Transparent;
-                _sidebarBorder.Background = Brushes.Transparent;
-            }
+            if (_topTabBarBorder == null || _sidebarBorder == null) return;
+            // Exact macOS Search behavior: outer frame/sidebar stays Palette.Frame (#131313 dark / #F4F4F4 light),
+            // while Home background themes paint only the blank New Tab (about:blank).
+            Background = Palette.Frame;
+            _topTabBarBorder.Background = Palette.Frame;
+            _sidebarBorder.Background = Palette.Frame;
         }
 
         private async void OnWindowLoaded(object sender, RoutedEventArgs e)
