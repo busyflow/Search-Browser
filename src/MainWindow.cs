@@ -1675,6 +1675,16 @@ namespace SearchBrowser
                     Process.Start(new ProcessStartInfo { FileName = setupPath, Arguments = "/S", UseShellExecute = true });
                 }
             }
+            catch (System.Net.WebException wex)
+            {
+                var resp = wex.Response as System.Net.HttpWebResponse;
+                if (resp != null && resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                {
+                    MessageBox.Show("You are on the latest version (v" + currentVersion + ").", "Search Updates", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+                MessageBox.Show("Could not check for updates from github.com/" + repo + ":\n" + wex.Message, "Search Updates", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
             catch (Exception ex)
             {
                 MessageBox.Show("Could not check for updates from github.com/" + repo + ":\n" + ex.Message, "Search Updates", MessageBoxButton.OK, MessageBoxImage.Information);
