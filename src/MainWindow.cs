@@ -83,6 +83,17 @@ namespace SearchBrowser
         // Sidebar / Tab bar elements
         private WrapPanel _pinsPanel;
         private Border _pinsDivider;
+        private BrowserTab _carryTab;
+        private UIElement _carrySource;
+        private Point _carryStartScreen;
+        private bool _isCarrying;
+        private bool _carryOverPins;
+        private bool _carryOverTabs;
+        private System.Windows.Controls.Primitives.Popup _carryPopup;
+        private Border _carryVisual;
+        private Border _pinGhost;
+        private Border _rowGhost;
+        private string _justPinnedTabId;
         private Grid _tabsContainerGrid;
         private Border _glidingTabPill;
         private TranslateTransform _glidingPillTransform;
@@ -1827,7 +1838,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0007";
+            const string currentVersion = "0.0008";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -2330,10 +2341,20 @@ namespace SearchBrowser
                 };
                 sq.Child = CreateFaviconOrGlyph(pin, 16);
                 var captured = pin;
-                sq.MouseEnter += (s, e) => { if (captured != _activeTab) sq.Background = Palette.Hover; };
-                sq.MouseLeave += (s, e) => { if (captured != _activeTab) sq.Background = Brushes.Transparent; };
-                sq.MouseLeftButtonDown += async (s, e) => await SelectTabAsync(captured);
+                sq.MouseEnter += (s, e) => { if (captured != _activeTab) sq.Background = Palette.Wash; };
+                sq.MouseLeave += (s, e) => { if (captured != _activeTab) sq.Background = Palette.Hover; };
+                sq.MouseLeftButtonDown += (s, e) => BeginPotentialCarry(captured, sq, e);
                 sq.MouseRightButtonUp += (s, e) => { e.Handled = true; ShowTabContextMenu(captured); };
+                if (_justPinnedTabId == pin.Id)
+                {
+                    _justPinnedTabId = null;
+                    var st = new ScaleTransform(0.8, 0.8);
+                    sq.RenderTransformOrigin = new Point(0.5, 0.5);
+                    sq.RenderTransform = st;
+                    var anim = new DoubleAnimation(0.8, 1.0, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                    st.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+                    st.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+                }
                 _pinsPanel.Children.Add(sq);
             }
 
@@ -2693,18 +2714,19 @@ namespace SearchBrowser
                 ToolTip = tab.DisplayTitle + "\n" + tab.Url + (tab.IsSleeping ? "\n(Sleeping — zero RAM used)" : "")
             };
 
+            bool hideIcon = isBlank && !tab.IsPrivate;
             var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = isBlank ? new GridLength(0) : new GridLength(23) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = hideIcon ? new GridLength(0) : new GridLength(23) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            if (!isBlank)
+            if (!hideIcon)
             {
                 UIElement iconEl;
                 if (tab.IsLoading)
                     iconEl = new TextBlock { Text = "◌", FontSize = 11, Foreground = Palette.Muted, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
                 else if (tab.IsPrivate)
-                    iconEl = new TextBlock { Text = "🕶", FontSize = 11, Foreground = Palette.Muted, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
+                    iconEl = VectorIcons.Draw(VectorIcons.EyeOffPath, Palette.Muted, 12, 1.4);
                 else if (tab.Url != null && tab.Url.StartsWith("search://settings", StringComparison.OrdinalIgnoreCase))
                 {
                     iconEl = new Border
@@ -2780,44 +2802,9 @@ namespace SearchBrowser
                 closeBtn.Visibility = Visibility.Hidden;
                 if (!isLive) row.Background = Brushes.Transparent;
             };
-            row.MouseLeftButtonDown += async (s, e) =>
+            row.MouseLeftButtonDown += (s, e) =>
             {
-                await SelectTabAsync(captured);
-            };
-            row.MouseMove += (s, e) =>
-            {
-                if (e.LeftButton == MouseButtonState.Pressed && _draggedTab == null)
-                {
-                    _draggedTab = captured;
-                    DragDrop.DoDragDrop(row, captured.Id, DragDropEffects.Move);
-                    _draggedTab = null;
-                }
-            };
-            row.DragOver += (s, e) =>
-            {
-                if (_draggedTab != null && _draggedTab != captured)
-                {
-                    e.Effects = DragDropEffects.Move;
-                    e.Handled = true;
-                }
-            };
-            row.Drop += (s, e) =>
-            {
-                if (_draggedTab != null && _draggedTab != captured)
-                {
-                    int fromIdx = _allTabs.IndexOf(_draggedTab);
-                    int toIdx = _allTabs.IndexOf(captured);
-                    if (fromIdx >= 0 && toIdx >= 0)
-                    {
-                        _draggedTab.GroupId = captured.GroupId;
-                        _allTabs.RemoveAt(fromIdx);
-                        _allTabs.Insert(toIdx, _draggedTab);
-                        SaveCurrentSession();
-                        RefreshTabRows();
-                    }
-                    _draggedTab = null;
-                    e.Handled = true;
-                }
+                BeginPotentialCarry(captured, row, e);
             };
             row.MouseDown += (s, e) =>
             {
@@ -2830,6 +2817,166 @@ namespace SearchBrowser
             row.MouseRightButtonUp += (s, e) => { e.Handled = true; ShowTabContextMenu(captured); };
 
             return row;
+        }
+
+        private void BeginPotentialCarry(BrowserTab tab, UIElement source, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton != MouseButton.Left) return;
+            _carryTab = tab;
+            _carrySource = source;
+            _carryStartScreen = PointToScreen(e.GetPosition(this));
+            _isCarrying = false;
+            _carryOverPins = false;
+            _carryOverTabs = false;
+            source.CaptureMouse();
+            source.MouseMove += OnCarryMouseMove;
+            source.MouseLeftButtonUp += OnCarryMouseUp;
+            e.Handled = true;
+        }
+
+        private void OnCarryMouseMove(object sender, MouseEventArgs e)
+        {
+            if (_carryTab == null) return;
+            Point curWin = e.GetPosition(this);
+            Point curScreen = PointToScreen(curWin);
+            double dx = curScreen.X - _carryStartScreen.X;
+            double dy = curScreen.Y - _carryStartScreen.Y;
+
+            if (!_isCarrying)
+            {
+                if (Math.Sqrt(dx * dx + dy * dy) < 5) return;
+                _isCarrying = true;
+                _carryVisual = _carryTab.Pinned
+                    ? new Border
+                    {
+                        Width = 48, Height = 34, CornerRadius = new CornerRadius(9),
+                        Background = Palette.Wash, BorderBrush = Palette.Hairline, BorderThickness = new Thickness(1),
+                        Child = CreateFaviconOrGlyph(_carryTab, 16),
+                        Effect = new DropShadowEffect { BlurRadius = 14, ShadowDepth = 4, Opacity = 0.28 }
+                    }
+                    : new Border
+                    {
+                        Width = 208, Height = 28, CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 0, 10, 0),
+                        Background = Palette.Wash, BorderBrush = Palette.Hairline, BorderThickness = new Thickness(1),
+                        Child = new TextBlock { Text = _carryTab.DisplayTitle, FontSize = 12.5, Foreground = Palette.Ink, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis },
+                        Effect = new DropShadowEffect { BlurRadius = 14, ShadowDepth = 4, Opacity = 0.28 }
+                    };
+                _carryPopup = new System.Windows.Controls.Primitives.Popup
+                {
+                    Child = _carryVisual,
+                    AllowsTransparency = true,
+                    IsHitTestVisible = false,
+                    Placement = System.Windows.Controls.Primitives.PlacementMode.Absolute,
+                    IsOpen = true
+                };
+            }
+
+            if (_carryPopup != null)
+            {
+                _carryPopup.HorizontalOffset = curScreen.X - (_carryTab.Pinned ? 24 : 80);
+                _carryPopup.VerticalOffset = curScreen.Y - 16;
+            }
+
+            Point inSidebar = e.GetPosition(_sidebarBorder);
+            double pinZoneBottom = Math.Max(46, _pinsPanel.ActualHeight + 16);
+            bool inSidebarX = inSidebar.X >= -20 && inSidebar.X <= _sidebarBorder.ActualWidth + 20;
+            bool overPins = inSidebarX && inSidebar.Y < pinZoneBottom;
+            bool overTabs = inSidebarX && inSidebar.Y >= pinZoneBottom;
+
+            if (!_carryTab.Pinned && overPins != _carryOverPins)
+            {
+                _carryOverPins = overPins;
+                if (_carryVisual != null) _carryVisual.Opacity = overPins ? 0.55 : 0.95;
+                if (overPins)
+                {
+                    if (_pinGhost == null)
+                    {
+                        _pinGhost = new Border
+                        {
+                            Width = 48, Height = 34, Margin = new Thickness(0, 0, 4, 4), CornerRadius = new CornerRadius(9),
+                            Background = Palette.Hover, BorderBrush = new SolidColorBrush(Color.FromArgb(50, 237, 237, 237)), BorderThickness = new Thickness(1),
+                            Opacity = 0.65, Child = CreateFaviconOrGlyph(_carryTab, 16)
+                        };
+                        _pinsPanel.Children.Add(_pinGhost);
+                        if (_pinsDivider != null) _pinsDivider.Visibility = Visibility.Visible;
+                    }
+                }
+                else if (_pinGhost != null)
+                {
+                    _pinsPanel.Children.Remove(_pinGhost);
+                    _pinGhost = null;
+                }
+            }
+            else if (_carryTab.Pinned && overTabs != _carryOverTabs)
+            {
+                _carryOverTabs = overTabs;
+                if (_carryVisual != null) _carryVisual.Opacity = overTabs ? 0.5 : 0.95;
+                if (overTabs)
+                {
+                    if (_rowGhost == null)
+                    {
+                        var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                        var ic = CreateFaviconOrGlyph(_carryTab, 15);
+                        sp.Children.Add(new Border { Width = 18, Margin = new Thickness(0, 0, 6, 0), Child = ic });
+                        sp.Children.Add(new TextBlock { Text = _carryTab.DisplayTitle, FontSize = 12.5, Foreground = Palette.Muted, VerticalAlignment = VerticalAlignment.Center });
+                        _rowGhost = new Border
+                        {
+                            Height = 28, CornerRadius = new CornerRadius(9), Margin = new Thickness(0, 1, 0, 1), Padding = new Thickness(10, 0, 10, 0),
+                            Background = Palette.Hover, BorderBrush = new SolidColorBrush(Color.FromArgb(45, 237, 237, 237)), BorderThickness = new Thickness(1),
+                            Opacity = 0.65, Child = sp
+                        };
+                        _tabsStack.Children.Insert(0, _rowGhost);
+                    }
+                }
+                else if (_rowGhost != null)
+                {
+                    _tabsStack.Children.Remove(_rowGhost);
+                    _rowGhost = null;
+                }
+            }
+        }
+
+        private async void OnCarryMouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (_carrySource != null)
+            {
+                _carrySource.MouseMove -= OnCarryMouseMove;
+                _carrySource.MouseLeftButtonUp -= OnCarryMouseUp;
+                _carrySource.ReleaseMouseCapture();
+            }
+            if (_carryPopup != null) { _carryPopup.IsOpen = false; _carryPopup = null; }
+            if (_pinGhost != null) { _pinsPanel.Children.Remove(_pinGhost); _pinGhost = null; }
+            if (_rowGhost != null) { _tabsStack.Children.Remove(_rowGhost); _rowGhost = null; }
+
+            var tab = _carryTab;
+            bool wasCarrying = _isCarrying;
+            bool dropPin = _carryOverPins;
+            bool dropUnpin = _carryOverTabs;
+            _carryTab = null;
+            _carrySource = null;
+            _isCarrying = false;
+            _carryOverPins = false;
+            _carryOverTabs = false;
+
+            if (tab == null) return;
+            if (!wasCarrying)
+            {
+                await SelectTabAsync(tab);
+                return;
+            }
+            if (!tab.Pinned && dropPin)
+            {
+                tab.Pinned = true;
+                _justPinnedTabId = tab.Id;
+                RefreshTabRows();
+                SaveCurrentSession();
+            }
+            else if (tab.Pinned && dropUnpin)
+            {
+                tab.Pinned = false;
+                RefreshTabRows();
+                SaveCurrentSession();
+            }
         }
 
         private UIElement CreateHorizontalTabPill(BrowserTab tab)
