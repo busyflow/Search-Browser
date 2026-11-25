@@ -298,36 +298,12 @@ namespace SearchBrowser
       return x - Math.floor(x);
     }
 
-    // 1. Canvas 2D readback farbling (subtle +-1 LSB noise on a few deterministic pixels)
-    function farbleCanvas(canvas) {
-      try {
-        if (!canvas || canvas.width <= 0 || canvas.height <= 0 || canvas.width * canvas.height > 250000) return;
-        var ctx = canvas.getContext && canvas.getContext('2d');
-        if (!ctx) return;
-        var img = CanvasRenderingContext2D.prototype.getImageData.call(ctx, 0, 0, Math.min(canvas.width, 64), Math.min(canvas.height, 64));
-        var d = img.data;
-        if (d && d.length >= 16) {
-          var step = Math.max(4, Math.floor(d.length / 16) * 4);
-          for (var p = 0; p < d.length; p += step) {
-            var delta = nextNoise(p) > 0.5 ? 1 : -1;
-            d[p] = Math.max(0, Math.min(255, d[p] + delta));
-          }
-          ctx.putImageData(img, 0, 0);
-        }
-      } catch (e) {}
-    }
-
-    var origToDataURL = HTMLCanvasElement.prototype.toDataURL;
-    HTMLCanvasElement.prototype.toDataURL = function() {
-      farbleCanvas(this);
-      return origToDataURL.apply(this, arguments);
-    };
-
+    // 1. Non-destructive Canvas 2D getImageData readback farbling (never mutates the live canvas)
     var origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
     CanvasRenderingContext2D.prototype.getImageData = function(sx, sy, sw, sh) {
       var img = origGetImageData.apply(this, arguments);
       try {
-        if (img && img.data && img.data.length >= 16 && img.data.length <= 1000000) {
+        if (img && img.data && img.data.length >= 16 && img.data.length <= 262144) {
           var d = img.data;
           var step = Math.max(4, Math.floor(d.length / 16) * 4);
           for (var p = 0; p < d.length; p += step) {
@@ -339,20 +315,7 @@ namespace SearchBrowser
       return img;
     };
 
-    // 2. WebGL GPU vendor/renderer masking (prevents exact GPU model fingerprinting)
-    function patchWebGL(proto) {
-      if (!proto || !proto.getParameter) return;
-      var origGetParam = proto.getParameter;
-      proto.getParameter = function(param) {
-        if (param === 37445) return 'Google Inc.';
-        if (param === 37446) return 'ANGLE (Generic GPU)';
-        return origGetParam.apply(this, arguments);
-      };
-    }
-    if (window.WebGLRenderingContext) patchWebGL(window.WebGLRenderingContext.prototype);
-    if (window.WebGL2RenderingContext) patchWebGL(window.WebGL2RenderingContext.prototype);
-
-    // 3. AudioContext fingerprinting farbling (imperceptible 1e-7 deterministic jitter)
+    // 2. AudioContext fingerprinting farbling (imperceptible 1e-7 deterministic jitter)
     if (window.AudioBuffer && AudioBuffer.prototype.getChannelData) {
       var origGetChannelData = AudioBuffer.prototype.getChannelData;
       AudioBuffer.prototype.getChannelData = function() {
@@ -370,7 +333,7 @@ namespace SearchBrowser
       };
     }
 
-    // 4. Normalize high-entropy hardware hints & block Battery API fingerprinting
+    // 3. Normalize hardware hints & return generic Battery status (avoids anti-bot rejection tells)
     try {
       var hc = (nextNoise(1) > 0.5) ? 8 : 4;
       Object.defineProperty(Navigator.prototype, 'hardwareConcurrency', { get: function() { return hc; }, configurable: true });
@@ -380,7 +343,9 @@ namespace SearchBrowser
     } catch (e) {}
     try {
       if (Navigator.prototype.getBattery) {
-        Navigator.prototype.getBattery = function() { return Promise.reject(new DOMException('Battery status blocked for privacy', 'NotAllowedError')); };
+        Navigator.prototype.getBattery = function() {
+          return Promise.resolve({ charging: true, chargingTime: 0, dischargingTime: Infinity, level: 1, addEventListener: function(){}, removeEventListener: function(){} });
+        };
       }
     } catch (e) {}
 
