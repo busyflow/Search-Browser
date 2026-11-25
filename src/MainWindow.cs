@@ -3068,7 +3068,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0016";
+            const string currentVersion = "0.0017";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -3374,11 +3374,17 @@ namespace SearchBrowser
             int spaceIdx = prevSpaceTabs.IndexOf(tab);
             bool wasUnpinned = !tab.Pinned;
 
+            bool wasActive = (_activeTab == tab);
             _allTabs.Remove(tab);
             _mruTabs.Remove(tab);
+            if (_leftPaneHost != null && _leftPaneHost.Child == tab.WebView) _leftPaneHost.Child = null;
+            if (_rightPaneHost != null && _rightPaneHost.Child == tab.WebView) _rightPaneHost.Child = null;
+            if (wasActive) _activeTab = null;
             if (tab.IsPrivate && !_allTabs.Any(t => t.IsPrivate))
                 BrowserTab.CleanupSharedPrivateSession();
             try { if (tab.WebView != null) { tab.WebView.Visibility = Visibility.Collapsed; tab.WebView.Dispose(); } } catch { }
+            tab.WebView = null;
+            tab.IsWebViewInitialized = false;
             TrimProcessWorkingSet();
 
             var spaceTabs = GetTabsForActiveSpace();
@@ -3395,7 +3401,7 @@ namespace SearchBrowser
                 return;
             }
 
-            if (_activeTab == tab)
+            if (wasActive)
             {
                 BrowserTab next = null;
                 if (Store.Prefs.CloseTabGoesToPrevious)
