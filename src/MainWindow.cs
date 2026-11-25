@@ -1758,29 +1758,44 @@ namespace SearchBrowser
                 Color gc = Color.FromRgb(0x1E, 0x22, 0x38);
                 bool isNightPack = false;
                 if (pack == "space") { gc = Color.FromRgb(0x2B, 0x2E, 0x4A); isNightPack = true; }
+                else if (pack == "roadtrip") gc = Color.FromRgb(0xF0, 0xDE, 0xC6);
                 else if (pack == "ocean") gc = Color.FromRgb(0xC9, 0xE6, 0xEA);
-                else if (pack == "plants") gc = Color.FromRgb(0xDE, 0xE8, 0xD5);
-                else if (pack == "cats") gc = Color.FromRgb(0xF3, 0xE4, 0xD8);
-                else if (pack == "dogs") gc = Color.FromRgb(0xEE, 0xE2, 0xCE);
-                else if (pack == "food") gc = Color.FromRgb(0xF6, 0xE8, 0xD5);
+                else if (pack == "jungle" || pack == "plants") gc = Color.FromRgb(0xDE, 0xE8, 0xD5);
+                else if (pack == "streetfood" || pack == "food") gc = Color.FromRgb(0xF6, 0xE8, 0xD5);
+                else if (pack == "retrotech") gc = Color.FromRgb(0xE8, 0xE2, 0xD5);
+                else if (pack == "weather") gc = Color.FromRgb(0xD8, 0xE6, 0xF2);
                 else if (pack == "music") gc = Color.FromRgb(0xE6, 0xDC, 0xEE);
-                else if (pack == "travel") gc = Color.FromRgb(0xDD, 0xE9, 0xF2);
                 else if (pack == "wonders") gc = Color.FromRgb(0xEB, 0xDF, 0xCE);
                 else if (pack == "search") gc = Color.FromRgb(0xE2, 0xE8, 0xF0);
                 bgBrush = new SolidColorBrush(ToneThemeColor(gc, dark, isNightPack, intensity));
             }
             else
             {
-                // Scenic wall painting palette gradients
+                // Scenic wall painting palette gradients (WALL_LIST in HomeThemesJs.cs)
                 Color topC = Color.FromRgb(0xC6, 0xD8, 0xE4);
                 Color botC = Color.FromRgb(0x7D, 0x9B, 0x8E);
                 bool isNightWall = false;
-                if (th == "night" || th == "aurora") { topC = Color.FromRgb(0x16, 0x1E, 0x36); botC = Color.FromRgb(0x2A, 0x45, 0x58); isNightWall = true; }
-                else if (th == "dunes" || th == "desert" || th == "mesa") { topC = Color.FromRgb(0xE8, 0xC6, 0xA8); botC = Color.FromRgb(0xC4, 0x8B, 0x6B); }
-                else if (th == "sunset" || th == "savanna") { topC = Color.FromRgb(0xE9, 0xB2, 0x9C); botC = Color.FromRgb(0x8D, 0x76, 0x9E); }
-                else if (th == "forest" || th == "meadow" || th == "meadows" || th == "garden") { topC = Color.FromRgb(0xC9, 0xDF, 0xCB); botC = Color.FromRgb(0x6C, 0x94, 0x76); }
-                else if (th == "waves" || th == "fjord" || th == "coast" || th == "harbor" || th == "archipelago") { topC = Color.FromRgb(0xC3, 0xDF, 0xE6); botC = Color.FromRgb(0x5E, 0x8A, 0x9C); }
-                else if (th == "fog" || th == "tundra" || th == "peaks") { topC = Color.FromRgb(0xD8, 0xDF, 0xE6); botC = Color.FromRgb(0x8A, 0x99, 0xA8); }
+                if (th == "northernlights" || th == "saturnrise" || th == "moonscape" || th == "cityatnight" || th == "night" || th == "aurora")
+                {
+                    topC = Color.FromRgb(0x16, 0x1E, 0x36);
+                    botC = Color.FromRgb(0x2A, 0x45, 0x58);
+                    isNightWall = true;
+                }
+                else if (th == "deserthighway" || th == "openroad" || th == "dunes" || th == "desert" || th == "mesa")
+                {
+                    topC = Color.FromRgb(0xE8, 0xC6, 0xA8);
+                    botC = Color.FromRgb(0xC4, 0x8B, 0x6B);
+                }
+                else if (th == "riceterraces" || th == "monsoonforest" || th == "forest" || th == "meadow")
+                {
+                    topC = Color.FromRgb(0xC9, 0xDF, 0xCB);
+                    botC = Color.FromRgb(0x6C, 0x94, 0x76);
+                }
+                else if (th == "coastalcliffs" || th == "mountainlake" || th == "waves" || th == "coast")
+                {
+                    topC = Color.FromRgb(0xC3, 0xDF, 0xE6);
+                    botC = Color.FromRgb(0x5E, 0x8A, 0x9C);
+                }
                 bgBrush = new LinearGradientBrush(
                     ToneThemeColor(topC, dark, isNightWall, intensity),
                     ToneThemeColor(botC, dark, isNightWall, intensity),
@@ -2541,7 +2556,19 @@ namespace SearchBrowser
                     Store.Prefs.Appearance = string.IsNullOrEmpty(arg) ? "System" : arg;
                     Store.SavePrefs();
                     ApplyLayoutPreferences(false);
-                    settingsTab.RenderSettingsTab("appearance", scrollY);
+                    foreach (var t in _allTabs)
+                    {
+                        if (t.IsWebViewInitialized && t.WebView != null && t.WebView.CoreWebView2 != null &&
+                            t.Url != null && t.Url.StartsWith("search://settings", StringComparison.OrdinalIgnoreCase))
+                        {
+                            try
+                            {
+                                await t.WebView.CoreWebView2.ExecuteScriptAsync(
+                                    "if(window.__applyLookVars)window.__applyLookVars(" + (Palette.IsDark ? "true" : "false") + ",'" + (Store.Prefs.Appearance ?? "System") + "');");
+                            }
+                            catch { }
+                        }
+                    }
                     break;
                 case "toggleDusk":
                     Store.Prefs.DuskEnabled = !Store.Prefs.DuskEnabled;
@@ -3430,8 +3457,12 @@ namespace SearchBrowser
                 _glidingTabPill.Height = Store.Prefs.RoomierTabs ? 36 : 28;
             }
             _topTabBarBorder.Background = Palette.Frame;
+            ApplyChromeThemeBrush();
             _pageCardBorder.Background = Palette.Ground;
             _pageCardBorder.BorderBrush = Palette.CardEdge;
+            if (_stageGrid != null) _stageGrid.Background = Palette.Ground;
+            if (_leftPaneHost != null) _leftPaneHost.Background = Palette.Ground;
+            if (_rightPaneHost != null) _rightPaneHost.Background = Palette.Ground;
             _omniboxCard.Background = Palette.CardSurface;
             _omniboxCard.BorderBrush = Palette.Hairline;
             _omniboxInput.Foreground = Palette.Ink;
@@ -3517,6 +3548,9 @@ namespace SearchBrowser
             {
                 if (t.IsWebViewInitialized && t.WebView != null && t.WebView.CoreWebView2 != null)
                 {
+                    t.WebView.DefaultBackgroundColor = Palette.IsDark
+                        ? System.Drawing.Color.FromArgb(255, 28, 28, 28)
+                        : System.Drawing.Color.FromArgb(255, 255, 255, 255);
                     t.WebView.CoreWebView2.Profile.PreferredColorScheme = Palette.IsDark
                         ? CoreWebView2PreferredColorScheme.Dark
                         : CoreWebView2PreferredColorScheme.Light;

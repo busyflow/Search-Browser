@@ -440,6 +440,8 @@ namespace SearchBrowser
         public async Task ApplySiteStyleSheetsAsync()
         {
             if (WebView == null || !IsWebViewInitialized || WebView.CoreWebView2 == null) return;
+            if (string.IsNullOrEmpty(Url) || Url.StartsWith("about:", StringComparison.OrdinalIgnoreCase) || Url.StartsWith("search://", StringComparison.OrdinalIgnoreCase))
+                return;
             try
             {
                 string host = Address.DisplayHost(Url);

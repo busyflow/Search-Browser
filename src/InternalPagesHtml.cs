@@ -978,15 +978,15 @@ namespace SearchBrowser
             </div>
             <div class='sr-wide'>
               <div class='st-pics'>
-                <div class='st-pic " + (lookPref == "Light" ? "on" : "") + @"' onclick=""act('setLook','Light')"">
+                <div class='st-pic " + (lookPref == "Light" ? "on" : "") + @"' data-look-opt='Light' onclick=""setLookLive('Light', this)"">
                   <div class='st-pic-ring'><span class='st-pic-frame' style='background:#f4f4f4'><span style='position:absolute;left:18px;top:6px;right:4px;bottom:4px;background:#fff;border-radius:4px;border:1px solid #e0e0e0'></span></span></div>
                   <span class='st-pic-label'>Light</span>
                 </div>
-                <div class='st-pic " + (lookPref == "Dark" ? "on" : "") + @"' onclick=""act('setLook','Dark')"">
+                <div class='st-pic " + (lookPref == "Dark" ? "on" : "") + @"' data-look-opt='Dark' onclick=""setLookLive('Dark', this)"">
                   <div class='st-pic-ring'><span class='st-pic-frame' style='background:#131313'><span style='position:absolute;left:18px;top:6px;right:4px;bottom:4px;background:#1c1c1c;border-radius:4px;border:1px solid #333'></span></span></div>
                   <span class='st-pic-label'>Dark</span>
                 </div>
-                <div class='st-pic " + (lookPref == "System" ? "on" : "") + @"' onclick=""act('setLook','System')"">
+                <div class='st-pic " + (lookPref == "System" ? "on" : "") + @"' data-look-opt='System' onclick=""setLookLive('System', this)"">
                   <div class='st-pic-ring'><span class='st-pic-frame' style='background:linear-gradient(90deg, #f4f4f4 50%, #131313 50%)'><span style='position:absolute;left:18px;top:6px;right:4px;bottom:4px;background:linear-gradient(90deg, #fff 50%, #1c1c1c 50%);border-radius:4px;border:1px solid #555'></span></span></div>
                   <span class='st-pic-label'>Auto</span>
                 </div>
@@ -2088,6 +2088,38 @@ namespace SearchBrowser
 
   function setPref(prop, val) {
     act('setPref', prop + '=' + val);
+  }
+
+  window.__applyLookVars = function(dark, mode) {
+    isDark = !!dark;
+    var r = document.documentElement;
+    r.setAttribute('data-look', isDark ? 'dark' : 'light');
+    r.style.colorScheme = isDark ? 'dark' : 'light';
+    r.style.setProperty('--ground', isDark ? '#1C1C1C' : '#FFFFFF');
+    r.style.setProperty('--ink', isDark ? '#EDEDED' : '#171717');
+    r.style.setProperty('--ink-rgb', isDark ? '237,237,237' : '23,23,23');
+    r.style.setProperty('--muted', isDark ? '#949494' : '#8C8C8C');
+    r.style.setProperty('--faint', isDark ? '#525252' : '#D4D4D4');
+    r.style.setProperty('--hairline', isDark ? '#333333' : '#E8E8E8');
+    r.style.setProperty('--wash', isDark ? '#2D2D2D' : '#EFEFEF');
+    r.style.setProperty('--hover', isDark ? '#262626' : '#F6F6F6');
+    if (mode) {
+      var pics = document.querySelectorAll('[data-look-opt]');
+      for (var i = 0; i < pics.length; i++) {
+        pics[i].classList.toggle('on', pics[i].getAttribute('data-look-opt') === mode);
+      }
+    }
+    if (typeof renderThemesUi === 'function') renderThemesUi();
+  };
+
+  function setLookLive(mode, el) {
+    if (mode === 'Dark') window.__applyLookVars(true, mode);
+    else if (mode === 'Light') window.__applyLookVars(false, mode);
+    else if (el) {
+      var pics = document.querySelectorAll('[data-look-opt]');
+      for (var i = 0; i < pics.length; i++) pics[i].classList.toggle('on', pics[i] === el);
+    }
+    act('setLook', mode);
   }
 
   // Exact Oriel ThemesPage.tsx interactive UI (10 murals, 10 sticker packs, 6 swatches, 5 gradients, angle/intensity/density/scale, shuffle, custom image)
