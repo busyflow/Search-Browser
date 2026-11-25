@@ -1755,7 +1755,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "1.0.0";
+            const string currentVersion = "0.0001";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
