@@ -140,6 +140,10 @@ namespace SearchBrowser
             {
                 try
                 {
+                    if (Store.Prefs.SendGpc || IsPrivate)
+                    {
+                        e.Request.Headers.SetHeader("Sec-GPC", "1");
+                    }
                     if (Shield.ShouldBlockRequest(e.Request.Uri, Url))
                     {
                         e.Response = core.Environment.CreateWebResourceResponse(Stream.Null, 403, "Blocked by Search Shield", "");
@@ -148,11 +152,37 @@ namespace SearchBrowser
                 catch { }
             };
 
+            core.PermissionRequested += (s, e) =>
+            {
+                if (e.PermissionKind == CoreWebView2PermissionKind.Notifications && !Store.Prefs.AllowNotifications)
+                {
+                    e.State = CoreWebView2PermissionState.Deny;
+                }
+            };
+
             core.NavigationStarting += (s, e) =>
             {
                 if (string.IsNullOrEmpty(e.Uri) || e.Uri.StartsWith("data:") || e.Uri == "about:blank")
                 {
                     return;
+                }
+
+                if (Store.Prefs.TryHttpsFirst && e.Uri.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+                {
+                    e.Cancel = true;
+                    core.Navigate("https://" + e.Uri.Substring(7));
+                    return;
+                }
+
+                if (Store.Prefs.RemoveClickTrackers || IsPrivate)
+                {
+                    string cleaned = CleanLink.Clean(e.Uri);
+                    if (!string.Equals(cleaned, e.Uri, StringComparison.Ordinal))
+                    {
+                        e.Cancel = true;
+                        core.Navigate(cleaned);
+                        return;
+                    }
                 }
 
                 // Pinned tabs external-domain Peek behavior (from Peek.swift peeksFromPin)
