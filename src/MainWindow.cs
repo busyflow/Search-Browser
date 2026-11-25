@@ -236,6 +236,7 @@ namespace SearchBrowser
             StateChanged += OnWindowStateChanged;
             PreviewKeyDown += OnWindowPreviewKeyDown;
             PreviewKeyUp += OnWindowPreviewKeyUp;
+            System.Windows.Interop.ComponentDispatcher.ThreadPreprocessMessage += OnThreadPreprocessMessage;
             LocationChanged += (s, e) => { RepositionFindPopup(); RepositionSplitClosePopup(); };
             SizeChanged += (s, e) => { RepositionFindPopup(); RepositionSplitClosePopup(); };
             DownloadsUpdated += () => Dispatcher.InvokeAsync(() => UpdateFooterButtons());
@@ -5232,6 +5233,30 @@ namespace SearchBrowser
         }
 
         // KEYBOARD SHORTCUTS
+        private void OnThreadPreprocessMessage(ref System.Windows.Interop.MSG msg, ref bool handled)
+        {
+            // WM_SYSKEYDOWN (0x0104) for Alt+1..9 — intercepts before WebView2/Windows menu loop can swallow or beep
+            if (handled || msg.message != 0x0104 || !IsActive) return;
+            int vk = msg.wParam.ToInt32();
+            int spIdx = -1;
+            if (vk >= 0x31 && vk <= 0x39) spIdx = vk - 0x31;        // Top-row 1..9
+            else if (vk >= 0x61 && vk <= 0x69) spIdx = vk - 0x61;   // NumPad 1..9
+            if (spIdx < 0) return;
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
+
+            handled = true;
+            if (Store.Prefs.CtrlNumbersSwitchSpaces)
+            {
+                var spaceTabs = GetTabsForActiveSpace();
+                if (spIdx == 8 && spaceTabs.Count > 0) spIdx = spaceTabs.Count - 1;
+                if (spIdx < spaceTabs.Count) { var _ = SelectTabAsync(spaceTabs[spIdx]); }
+            }
+            else if (spIdx < Store.Spaces.Count)
+            {
+                CycleSpace(spIdx);
+            }
+        }
+
         private async void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
         {
             var mods = Keyboard.Modifiers;
