@@ -1775,9 +1775,12 @@ namespace SearchBrowser
             _rightPaneHost.SizeChanged += (s2, e2) => ApplyRoundedCornersToHost(_rightPaneHost);
             try
             {
+                string browserArgs = "--enable-smooth-scrolling --disable-background-networking --disable-features=InterestFeedContentSuggestions,OptimizationHints,MediaRouter,PrivacySandboxAdsAPIsOverride,BrowsingTopics,AttributionReportingCrossAppWeb";
+                if (Store.Prefs != null && Store.Prefs.BlockWebRtcLeaks)
+                    browserArgs += " --force-webrtc-ip-handling-policy=disable_non_proxied_udp";
                 var options = new CoreWebView2EnvironmentOptions
                 {
-                    AdditionalBrowserArguments = "--enable-smooth-scrolling"
+                    AdditionalBrowserArguments = browserArgs
                 };
                 try
                 {
@@ -2079,6 +2082,8 @@ namespace SearchBrowser
                 bool shift = json.Contains("\"shift\":true");
                 bool ctrl = !json.Contains("\"ctrl\":false");
                 bool alt = json.Contains("\"alt\":true");
+                string sig = (ctrl ? "C" : "") + (alt ? "A" : "") + (shift ? "S" : "") + ":" + key;
+                if (!ShouldRunShortcutOnce(sig)) return;
                 if (key == "escape")
                 {
                     HandleEscapeKey();
@@ -2723,7 +2728,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0011";
+            const string currentVersion = "0.0012";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -2839,15 +2844,34 @@ namespace SearchBrowser
             }
         }
 
+        private int _lastHistoryRenderedCount = -1;
+        private string _lastShortcutSig = "";
+        private int _lastShortcutTick = 0;
+
+        private bool ShouldRunShortcutOnce(string sig)
+        {
+            int now = Environment.TickCount;
+            if (sig == _lastShortcutSig && Math.Abs(now - _lastShortcutTick) < 120)
+                return false;
+            _lastShortcutSig = sig;
+            _lastShortcutTick = now;
+            return true;
+        }
+
         public async void OpenOrSelectHistoryTab()
         {
             var existing = GetTabsForActiveSpace().FirstOrDefault(t => t.Url != null && t.Url.StartsWith("search://history", StringComparison.OrdinalIgnoreCase));
             if (existing != null)
             {
                 await SelectTabAsync(existing);
-                existing.RenderHistoryTab();
+                if (_lastHistoryRenderedCount != Store.History.Count)
+                {
+                    _lastHistoryRenderedCount = Store.History.Count;
+                    existing.RenderHistoryTab();
+                }
                 return;
             }
+            _lastHistoryRenderedCount = Store.History.Count;
             var tab = new BrowserTab("search://history", "History", false, false, Store.Prefs.ActiveSpaceId);
             AttachTabEvents(tab);
             InsertNewTab(tab, _activeTab);
@@ -2861,7 +2885,15 @@ namespace SearchBrowser
             if (existing != null)
             {
                 await SelectTabAsync(existing);
-                existing.RenderSettingsTab(section);
+                if (!string.IsNullOrEmpty(section) && section != "general" && existing.IsWebViewInitialized && existing.WebView != null && existing.WebView.CoreWebView2 != null)
+                {
+                    try
+                    {
+                        string safeSec = Regex.Replace(section, "[^a-zA-Z0-9_-]", "");
+                        await existing.WebView.CoreWebView2.ExecuteScriptAsync("if(typeof showSec==='function')showSec('" + safeSec + "');");
+                    }
+                    catch { }
+                }
                 return;
             }
             var tab = new BrowserTab("search://settings/" + section, "Settings", false, false, Store.Prefs.ActiveSpaceId);
@@ -5588,25 +5620,90 @@ namespace SearchBrowser
         // KEYBOARD SHORTCUTS
         private void OnThreadPreprocessMessage(ref System.Windows.Interop.MSG msg, ref bool handled)
         {
-            // WM_SYSKEYDOWN (0x0104) for Alt+1..9 — intercepts before WebView2/Windows menu loop can swallow or beep
-            if (handled || msg.message != 0x0104 || !IsActive) return;
-            int vk = msg.wParam.ToInt32();
-            int spIdx = -1;
-            if (vk >= 0x31 && vk <= 0x39) spIdx = vk - 0x31;        // Top-row 1..9
-            else if (vk >= 0x61 && vk <= 0x69) spIdx = vk - 0x61;   // NumPad 1..9
-            if (spIdx < 0) return;
-            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
+            if (handled || !IsActive) return;
+            if (msg.message != 0x0104 && msg.message != 0x0100) return; // WM_SYSKEYDOWN or WM_KEYDOWN
 
-            handled = true;
-            if (Store.Prefs.CtrlNumbersSwitchSpaces)
+            int vk = msg.wParam.ToInt32();
+            var mods = Keyboard.Modifiers;
+            bool ctrl = mods.HasFlag(ModifierKeys.Control);
+            bool shift = mods.HasFlag(ModifierKeys.Shift);
+            bool alt = mods.HasFlag(ModifierKeys.Alt) || msg.message == 0x0104;
+
+            // 1. Alt+1..9 (and NumPad 1..9) — instant Space switching with zero Windows beep
+            if (alt && !ctrl && !shift)
             {
-                var spaceTabs = GetTabsForActiveSpace();
-                if (spIdx == 8 && spaceTabs.Count > 0) spIdx = spaceTabs.Count - 1;
-                if (spIdx < spaceTabs.Count) { var _ = SelectTabAsync(spaceTabs[spIdx]); }
+                int spIdx = -1;
+                if (vk >= 0x31 && vk <= 0x39) spIdx = vk - 0x31;
+                else if (vk >= 0x61 && vk <= 0x69) spIdx = vk - 0x61;
+                if (spIdx >= 0)
+                {
+                    handled = true;
+                    if (!ShouldRunShortcutOnce("A:" + (spIdx + 1))) return;
+                    if (Store.Prefs.CtrlNumbersSwitchSpaces)
+                    {
+                        var spaceTabs = GetTabsForActiveSpace();
+                        if (spIdx == 8 && spaceTabs.Count > 0) spIdx = spaceTabs.Count - 1;
+                        if (spIdx < spaceTabs.Count) { var _ = SelectTabAsync(spaceTabs[spIdx]); }
+                    }
+                    else if (spIdx < Store.Spaces.Count)
+                    {
+                        CycleSpace(spIdx);
+                    }
+                    return;
+                }
             }
-            else if (spIdx < Store.Spaces.Count)
+
+            // 2. High-frequency browser Ctrl shortcuts intercepted at Win32 loop (0ms latency, works even mid-load)
+            if (ctrl && !alt)
             {
-                CycleSpace(spIdx);
+                string keyStr = null;
+                if (!shift)
+                {
+                    if (vk == 0x48) keyStr = "h";        // Ctrl+H (History)
+                    else if (vk == 0x59) keyStr = "y";   // Ctrl+Y (History)
+                    else if (vk == 0xBC) keyStr = ",";   // Ctrl+, (Settings)
+                    else if (vk == 0x54) keyStr = "t";   // Ctrl+T (New Tab)
+                    else if (vk == 0x57) keyStr = "w";   // Ctrl+W (Close Tab)
+                    else if (vk == 0x4C) keyStr = "l";   // Ctrl+L (Address)
+                    else if (vk == 0x4B) keyStr = "k";   // Ctrl+K (Switcher)
+                    else if (vk == 0x53) keyStr = "s";   // Ctrl+S (Fold Sidebar)
+                    else if (vk == 0x46) keyStr = "f";   // Ctrl+F (Find)
+                    else if (vk == 0x4A) keyStr = "j";   // Ctrl+J (Downloads)
+                    else if (vk == 0x52) keyStr = "r";   // Ctrl+R (Reload)
+                    else if (vk == 0xDB) keyStr = "[";   // Ctrl+[ (Back)
+                    else if (vk == 0xDD) keyStr = "]";   // Ctrl+] (Forward)
+                    else if (vk >= 0x31 && vk <= 0x39)
+                    {
+                        int idx = vk - 0x31;
+                        handled = true;
+                        if (!ShouldRunShortcutOnce("C:" + (idx + 1))) return;
+                        if (Store.Prefs.CtrlNumbersSwitchSpaces && idx < Store.Spaces.Count) { CycleSpace(idx); return; }
+                        var spaceTabs = GetTabsForActiveSpace();
+                        if (idx == 8 && spaceTabs.Count > 0) idx = spaceTabs.Count - 1;
+                        if (idx < spaceTabs.Count) { var _ = SelectTabAsync(spaceTabs[idx]); }
+                        return;
+                    }
+                }
+                else
+                {
+                    if (vk == 0x54) keyStr = "t";        // Ctrl+Shift+T (Reopen Closed)
+                    else if (vk == 0x4E) keyStr = "n";   // Ctrl+Shift+N (Private Tab)
+                    else if (vk == 0x53) keyStr = "s";   // Ctrl+Shift+S (Top/Left Bar)
+                    else if (vk == 0x42) keyStr = "b";   // Ctrl+Shift+B (Bookmark)
+                    else if (vk == 0x52) keyStr = "r";   // Ctrl+Shift+R (Reader)
+                    else if (vk == 0x48) keyStr = "h";   // Ctrl+Shift+H (Curtain)
+                    else if (vk == 0x50) keyStr = "p";   // Ctrl+Shift+P (PiP)
+                    else if (vk == 0x4A) keyStr = "j";   // Ctrl+Shift+J (Downloads)
+                }
+
+                if (keyStr != null)
+                {
+                    handled = true;
+                    string sig = "C" + (shift ? "S" : "") + ":" + keyStr;
+                    if (!ShouldRunShortcutOnce(sig)) return;
+                    var _ = HandleShortcutKeyAsync(keyStr, shift);
+                    return;
+                }
             }
         }
 
@@ -5783,6 +5880,8 @@ namespace SearchBrowser
                 string keyStr = KeyToShortcutString(k);
                 if (!string.IsNullOrEmpty(keyStr))
                 {
+                    string sig = "C" + (shift ? "S" : "") + ":" + keyStr;
+                    if (!ShouldRunShortcutOnce(sig)) { e.Handled = true; return; }
                     bool handled = await HandleShortcutKeyAsync(keyStr, shift);
                     if (handled) e.Handled = true;
                 }

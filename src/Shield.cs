@@ -8,23 +8,71 @@ namespace SearchBrowser
     public static class Shield
     {
         public static int BlockedCountTotal = 0;
+        public static readonly int SessionFingerprintSeed = new Random().Next(1000, 999999);
 
         public static readonly HashSet<string> UnwantedDomains = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
+            // Ad networks & exchanges
             "doubleclick.net", "googlesyndication.com", "googleadservices.com",
             "googletagservices.com", "google-analytics.com", "googletagmanager.com",
             "adservice.google.com", "amazon-adsystem.com", "adnxs.com", "adsrvr.org",
-            "criteo.com", "criteo.net", "taboola.com", "outbrain.com",
+            "criteo.com", "criteo.net", "taboola.com", "outbrain.com", "outbrainimg.com",
             "rubiconproject.com", "pubmatic.com", "openx.net", "casalemedia.com",
             "smartadserver.com", "sharethrough.com", "indexww.com", "bidswitch.net",
-            "33across.com", "teads.tv", "moatads.com", "adroll.com",
-            "scorecardresearch.com", "quantserve.com", "chartbeat.com",
-            "hotjar.com", "mouseflow.com", "fullstory.com", "clarity.ms",
-            "mixpanel.com", "amplitude.com", "segment.com", "segment.io",
-            "branch.io", "appsflyer.com", "adjust.com", "analytics.tiktok.com",
-            "connect.facebook.net", "ads-twitter.com", "analytics.twitter.com",
+            "33across.com", "teads.tv", "moatads.com", "adroll.com", "revcontent.com",
+            "mgid.com", "zergnet.com", "zemanta.com", "mediavine.com", "adthrive.com",
+            "ezoic.net", "nitropay.com", "playwire.com", "freestar.com", "snigelweb.com",
+            "primis.tech", "connatix.com", "jwpltx.com", "yieldmo.com", "triplelift.com",
+            "gumgum.com", "kargo.com", "lijit.com", "sovrn.com", "spotxchange.com",
+            "springserve.com", "stickyadstv.com", "tidaltv.com", "tremorhub.com",
+            "undertone.com", "vungle.com", "unityads.unity3d.com", "applovin.com",
+            "ironsrc.com", "chartboost.com", "inmobi.com", "mopub.com", "smaato.net",
+            "adcolony.com", "adform.net", "adition.com", "adkernel.com", "admanmedia.com",
+            "admixer.net", "adocean.pl", "adrecover.com", "adsafeprotected.com",
+            "doubleverify.com", "integralads.com", "iasds01.com", "flashtalking.com",
+            "serving-sys.com", "sizmek.com", "innovid.com", "celtra.com", "media.net",
+            "contextweb.com", "pulsepoint.com", "sonobi.com", "rhythmone.com",
+            "gumgum.com", "cpx.to", "exoclick.com", "popads.net", "popcash.net",
+            "propellerads.com", "trafficjunky.net", "juicyads.com", "adsterra.com",
             "intergient.com", "btloader.com", "ad-delivery.net", "mentorsticks.com",
-            "dns-finder.com", "confiant-integrations.net", "cloudflareinsights.com"
+            "dns-finder.com", "confiant-integrations.net", "fundingchoicesmessages.google.com",
+
+            // Analytics, telemetry & session replay
+            "scorecardresearch.com", "quantserve.com", "chartbeat.com", "chartbeat.net",
+            "hotjar.com", "hotjar.io", "mouseflow.com", "fullstory.com", "clarity.ms",
+            "mixpanel.com", "amplitude.com", "segment.com", "segment.io", "logrocket.com",
+            "logrocket.io", "crazyegg.com", "luckyorange.com", "inspectlet.com",
+            "smartlook.com", "contentsquare.net", "quantummetric.com", "glassboxdigital.io",
+            "heap.io", "heapanalytics.com", "kissmetrics.com", "pendo.io", "walkme.com",
+            "optimizely.com", "vwo.com", "abtasty.com", "kameleoon.eu", "launchdarkly.com",
+            "omtrdc.net", "demdex.net", "everesttech.net", "2o7.net", "adobedtm.com",
+            "newrelic.com", "nr-data.net", "datadoghq.com", "browser-intake-datadoghq.com",
+            "sentry.io", "bugsnag.com", "rollbar.com", "trackjs.com", "raygun.io",
+            "cloudflareinsights.com", "app-measurement.com", "crashlyticsreports-pa.googleapis.com",
+            "firebase-settings.crashlytics.com", "mc.yandex.ru", "top-fwz1.mail.ru",
+            "counter.yadro.ru", "statcounter.com", "histats.com", "parsely.com",
+            "pingdom.net", "rum-static.pingdom.net", "go-mpulse.net", "mpstat.us",
+
+            // Fingerprinting & identity / data brokers
+            "fingerprintjs.com", "fpjs.io", "fpnpmcdn.net", "iovation.com", "threatmetrix.com",
+            "bluekai.com", "krxd.net", "exelator.com", "rlcdn.com", "liveramp.com",
+            "tapad.com", "agkn.com", "crwdcntrl.net", "lotame.com", "eyeota.net",
+            "id5-sync.com", "uidapi.com", "sharedid.org", "intentiq.com", "zeotap.com",
+            "permutive.com", "permutive.app", "narrativ.com", "skimresources.com",
+            "viglink.com", "bounceexchange.com", "bouncex.net", "wunderkind.co",
+
+            // Social tracking pixels & marketing automation
+            "branch.io", "appsflyer.com", "adjust.com", "singular.net", "kochava.com",
+            "analytics.tiktok.com", "business-api.tiktok.com", "mon.tiktokv.com",
+            "connect.facebook.net", "pixel.facebook.com", "an.facebook.com",
+            "ads-twitter.com", "analytics.twitter.com", "static.ads-twitter.com",
+            "ads.linkedin.com", "px.ads.linkedin.com", "snap.licdn.com",
+            "tr.snapchat.com", "sc-static.net", "ct.pinterest.com", "log.pinterest.com",
+            "bat.bing.com", "ads.reddit.com", "alb.reddit.com", "events.redditmedia.com",
+            "hs-analytics.net", "hs-scripts.com", "hsadspixel.net", "hs-banner.com",
+            "marketo.net", "mktoresp.com", "pardot.com", "salesforceiq.com",
+            "braze.com", "onesignal.com", "klaviyo.com", "drip.com", "intercom.io",
+            "fls-na.amazon.com", "unagi.amazon.com", "fls-eu.amazon.com"
         };
 
         public static readonly string[] CosmeticSlots = new[]
@@ -224,6 +272,132 @@ namespace SearchBrowser
       document.addEventListener(type, look, true);
     });
   }
+})();";
+        }
+
+        // Brave-style per-session deterministic anti-fingerprinting ("Farbling")
+        // Randomizes Canvas, WebGL GPU strings, AudioContext, Hardware/Battery hints, and blocks tracker beacons.
+        public static string GetAntiFingerprintingScript(int seed)
+        {
+            return @"
+(function() {
+  try {
+    if (window.__searchFarbleInstalled) return;
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
+    window.__searchFarbleInstalled = true;
+
+    // Deterministic per-session + per-origin hash so a site sees consistent values within a session
+    var baseSeed = " + seed + @";
+    var host = (location.hostname || '');
+    var h = baseSeed;
+    for (var i = 0; i < host.length; i++) {
+      h = ((h << 5) - h + host.charCodeAt(i)) | 0;
+    }
+    function nextNoise(idx) {
+      var x = Math.sin(h + idx * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    }
+
+    // 1. Canvas 2D readback farbling (subtle +-1 LSB noise on a few deterministic pixels)
+    function farbleCanvas(canvas) {
+      try {
+        if (!canvas || canvas.width <= 0 || canvas.height <= 0 || canvas.width * canvas.height > 250000) return;
+        var ctx = canvas.getContext && canvas.getContext('2d');
+        if (!ctx) return;
+        var img = CanvasRenderingContext2D.prototype.getImageData.call(ctx, 0, 0, Math.min(canvas.width, 64), Math.min(canvas.height, 64));
+        var d = img.data;
+        if (d && d.length >= 16) {
+          var step = Math.max(4, Math.floor(d.length / 16) * 4);
+          for (var p = 0; p < d.length; p += step) {
+            var delta = nextNoise(p) > 0.5 ? 1 : -1;
+            d[p] = Math.max(0, Math.min(255, d[p] + delta));
+          }
+          ctx.putImageData(img, 0, 0);
+        }
+      } catch (e) {}
+    }
+
+    var origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+    HTMLCanvasElement.prototype.toDataURL = function() {
+      farbleCanvas(this);
+      return origToDataURL.apply(this, arguments);
+    };
+
+    var origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+    CanvasRenderingContext2D.prototype.getImageData = function(sx, sy, sw, sh) {
+      var img = origGetImageData.apply(this, arguments);
+      try {
+        if (img && img.data && img.data.length >= 16 && img.data.length <= 1000000) {
+          var d = img.data;
+          var step = Math.max(4, Math.floor(d.length / 16) * 4);
+          for (var p = 0; p < d.length; p += step) {
+            var delta = nextNoise(p + sx + sy) > 0.5 ? 1 : -1;
+            d[p] = Math.max(0, Math.min(255, d[p] + delta));
+          }
+        }
+      } catch (e) {}
+      return img;
+    };
+
+    // 2. WebGL GPU vendor/renderer masking (prevents exact GPU model fingerprinting)
+    function patchWebGL(proto) {
+      if (!proto || !proto.getParameter) return;
+      var origGetParam = proto.getParameter;
+      proto.getParameter = function(param) {
+        if (param === 37445) return 'Google Inc.';
+        if (param === 37446) return 'ANGLE (Generic GPU)';
+        return origGetParam.apply(this, arguments);
+      };
+    }
+    if (window.WebGLRenderingContext) patchWebGL(window.WebGLRenderingContext.prototype);
+    if (window.WebGL2RenderingContext) patchWebGL(window.WebGL2RenderingContext.prototype);
+
+    // 3. AudioContext fingerprinting farbling (imperceptible 1e-7 deterministic jitter)
+    if (window.AudioBuffer && AudioBuffer.prototype.getChannelData) {
+      var origGetChannelData = AudioBuffer.prototype.getChannelData;
+      AudioBuffer.prototype.getChannelData = function() {
+        var data = origGetChannelData.apply(this, arguments);
+        try {
+          if (data && data.length > 0 && !data.__searchFarbled) {
+            Object.defineProperty(data, '__searchFarbled', { value: true, enumerable: false });
+            var stride = Math.max(1, Math.floor(data.length / 32));
+            for (var i = 0; i < data.length; i += stride) {
+              data[i] = data[i] + (nextNoise(i) - 0.5) * 1e-7;
+            }
+          }
+        } catch (e) {}
+        return data;
+      };
+    }
+
+    // 4. Normalize high-entropy hardware hints & block Battery API fingerprinting
+    try {
+      var hc = (nextNoise(1) > 0.5) ? 8 : 4;
+      Object.defineProperty(Navigator.prototype, 'hardwareConcurrency', { get: function() { return hc; }, configurable: true });
+    } catch (e) {}
+    try {
+      Object.defineProperty(Navigator.prototype, 'deviceMemory', { get: function() { return 8; }, configurable: true });
+    } catch (e) {}
+    try {
+      if (Navigator.prototype.getBattery) {
+        Navigator.prototype.getBattery = function() { return Promise.reject(new DOMException('Battery status blocked for privacy', 'NotAllowedError')); };
+      }
+    } catch (e) {}
+
+    // 5. Block sendBeacon calls to obvious third-party tracker paths
+    if (navigator.sendBeacon) {
+      var origBeacon = navigator.sendBeacon.bind(navigator);
+      navigator.sendBeacon = function(url, data) {
+        try {
+          var u = new URL(String(url), location.href);
+          if (u.hostname !== location.hostname && /(doubleclick|google-analytics|googletagmanager|clarity\.ms|hotjar|mixpanel|amplitude|segment|fullstory|mouseflow|sentry|datadoghq|newrelic|nr-data|facebook\.net|tiktok|taboola|outbrain)/i.test(u.hostname)) {
+            return true;
+          }
+        } catch (e) {}
+        return origBeacon(url, data);
+      };
+    }
+  } catch (e) {}
 })();";
         }
     }

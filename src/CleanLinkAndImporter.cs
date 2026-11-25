@@ -13,12 +13,19 @@ namespace SearchBrowser
         private static readonly HashSet<string> GlobalTrackingParams = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "fbclid", "gclid", "dclid", "gbraid", "wbraid", "msclkid", "yclid",
-            "twclid", "ttclid", "mc_eid", "igshid", "igsh", "_hsenc", "_hsmi", "mkt_tok"
+            "twclid", "ttclid", "li_fat_id", "mc_eid", "mc_cid", "igshid", "igsh",
+            "_hsenc", "_hsmi", "mkt_tok", "vero_id", "oly_enc_id", "oly_anon_id",
+            "s_cid", "wickedid", "epik", "ref_src", "ref_url", "spm", "scm",
+            "pd_rd_r", "pd_rd_w", "pd_rd_wg", "pf_rd_i", "pf_rd_m", "pf_rd_p",
+            "pf_rd_r", "pf_rd_s", "pf_rd_t", "dib", "dib_tag", "_openstat",
+            "rb_clickid", "sclid", "icid", "ncid", "ocid", "cvid", "sr_share",
+            "ga_source", "ga_medium", "ga_term", "ga_content", "ga_campaign",
+            "at_medium", "at_campaign", "at_custom1", "at_custom2"
         };
 
         private static readonly HashSet<string> SignatureParams = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "x-amz-signature", "x-goog-signature", "signature", "sig"
+            "x-amz-signature", "x-goog-signature", "signature", "sig", "x-amz-credential", "token", "code", "state"
         };
 
         public static string Clean(string rawUrl, bool stripUtm = true)
@@ -64,7 +71,12 @@ namespace SearchBrowser
 
         private static bool IsTrackingParam(string name, string host, bool stripUtm)
         {
-            if ((stripUtm && name.StartsWith("utm_", StringComparison.OrdinalIgnoreCase)) || GlobalTrackingParams.Contains(name))
+            if ((stripUtm && name.StartsWith("utm_", StringComparison.OrdinalIgnoreCase)) ||
+                name.StartsWith("hsa_", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("mtm_", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("pk_", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("matomo_", StringComparison.OrdinalIgnoreCase) ||
+                GlobalTrackingParams.Contains(name))
                 return true;
             if (name == "si" && (host == "youtube.com" || host.EndsWith(".youtube.com") || host == "youtu.be" || host == "spotify.com" || host.EndsWith(".spotify.com")))
                 return true;

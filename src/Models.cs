@@ -221,6 +221,9 @@ namespace SearchBrowser
         [DataMember] public bool RemoveClickTrackers { get; set; }
         [DataMember] public bool SendGpc { get; set; }
         [DataMember] public bool TryHttpsFirst { get; set; }
+        [DataMember] public bool AntiFingerprinting { get; set; }
+        [DataMember] public bool BlockWebRtcLeaks { get; set; }
+        [DataMember] public bool TrimCrossSiteReferrer { get; set; }
         [DataMember] public bool AllowNotifications { get; set; }
         [DataMember] public string ProxyMode { get; set; }
 
@@ -262,6 +265,10 @@ namespace SearchBrowser
             PreventCrossSiteTracking = true;
             RemoveClickTrackers = true;
             SendGpc = true;
+            TryHttpsFirst = true;
+            AntiFingerprinting = true;
+            BlockWebRtcLeaks = true;
+            TrimCrossSiteReferrer = true;
             SmoothScrolling = true;
             EnsureDefaults();
         }
@@ -313,6 +320,15 @@ namespace SearchBrowser
                 }
                 DimSleepingTabs = true;
                 PrefsMigrationVersion = 2;
+            }
+            if (PrefsMigrationVersion < 3)
+            {
+                AntiFingerprinting = true;
+                BlockWebRtcLeaks = true;
+                TrimCrossSiteReferrer = true;
+                TryHttpsFirst = true;
+                BenchServerEnabled = false;
+                PrefsMigrationVersion = 3;
             }
             if (string.IsNullOrEmpty(WindowButtonsStyle)) WindowButtonsStyle = "Inline";
             if (string.IsNullOrEmpty(NewTabPosition)) NewTabPosition = "After current";

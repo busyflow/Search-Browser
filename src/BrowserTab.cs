@@ -142,6 +142,21 @@ namespace SearchBrowser
                 ? CoreWebView2PreferredColorScheme.Dark
                 : CoreWebView2PreferredColorScheme.Light;
 
+            // Enable Chromium/Edge native Strict Tracking Prevention (Disconnect.me tracker blocking + third-party storage partitioning)
+            try
+            {
+                if ((Store.Prefs != null && Store.Prefs.PreventCrossSiteTracking) || IsPrivate)
+                {
+                    var tpProp = core.Profile.GetType().GetProperty("PreferredTrackingPreventionLevel");
+                    if (tpProp != null && tpProp.PropertyType.IsEnum)
+                    {
+                        object strictVal = Enum.Parse(tpProp.PropertyType, "Strict", true);
+                        tpProp.SetValue(core.Profile, strictVal, null);
+                    }
+                }
+            }
+            catch { }
+
             if (Store.Prefs != null && Store.Prefs.DefaultZoomPercent > 0 && Store.Prefs.DefaultZoomPercent != 100)
             {
                 WebView.ZoomFactor = Store.Prefs.DefaultZoomPercent / 100.0;
@@ -151,12 +166,17 @@ namespace SearchBrowser
                 try { core.Profile.DefaultDownloadFolderPath = Store.Prefs.DownloadsFolder; } catch { }
             }
 
-            // Inject Search's startup scripts before any frame renders (including GPC + Peek trigger + Video click-to-play)
+            // Inject Search's startup scripts before any frame renders (including Shield, Anti-Fingerprinting Farbling, GPC, Peek, Video click-to-play)
             await core.AddScriptToExecuteOnDocumentCreatedAsync(Shield.GetStartupScript());
             await core.AddScriptToExecuteOnDocumentCreatedAsync(PageFeatures.CurtainPickerBootstrapScript);
+            if ((Store.Prefs != null && Store.Prefs.AntiFingerprinting) || IsPrivate)
+            {
+                int seed = IsPrivate ? new Random(Guid.NewGuid().GetHashCode()).Next(1000, 999999) : Shield.SessionFingerprintSeed;
+                await core.AddScriptToExecuteOnDocumentCreatedAsync(Shield.GetAntiFingerprintingScript(seed));
+            }
             if ((Store.Prefs != null && Store.Prefs.SendGpc) || IsPrivate)
             {
-                await core.AddScriptToExecuteOnDocumentCreatedAsync("try{Object.defineProperty(Navigator.prototype,'globalPrivacyControl',{get:function(){return true;},configurable:true});}catch(e){}");
+                await core.AddScriptToExecuteOnDocumentCreatedAsync("try{Object.defineProperty(Navigator.prototype,'globalPrivacyControl',{get:function(){return true;},configurable:true});Object.defineProperty(Navigator.prototype,'doNotTrack',{get:function(){return '1';},configurable:true});}catch(e){}");
             }
             if (Store.Prefs != null && Store.Prefs.VideosWaitForClick)
             {
@@ -180,10 +200,41 @@ namespace SearchBrowser
             {
                 try
                 {
-                    if (Store.Prefs.SendGpc || IsPrivate)
+                    if ((Store.Prefs != null && Store.Prefs.SendGpc) || IsPrivate)
                     {
                         e.Request.Headers.SetHeader("Sec-GPC", "1");
+                        e.Request.Headers.SetHeader("DNT", "1");
                     }
+
+                    // Block HTML <a ping="..."> click-tracker pings
+                    if (e.ResourceContext == CoreWebView2WebResourceContext.Ping &&
+                        (IsPrivate || (Store.Prefs != null && (Store.Prefs.ShieldEnabled || Store.Prefs.PreventCrossSiteTracking))))
+                    {
+                        Shield.BlockedCountTotal++;
+                        e.Response = core.Environment.CreateWebResourceResponse(Stream.Null, 403, "Blocked Ping Tracker", "");
+                        return;
+                    }
+
+                    // Trim cross-site Referer down to origin-only so third-party sites never see full article/search URLs
+                    if ((IsPrivate || (Store.Prefs != null && Store.Prefs.TrimCrossSiteReferrer)) &&
+                        e.Request.Headers.Contains("Referer"))
+                    {
+                        string refVal = e.Request.Headers.GetHeader("Referer");
+                        Uri refUri, reqUri;
+                        if (!string.IsNullOrEmpty(refVal) &&
+                            Uri.TryCreate(refVal, UriKind.Absolute, out refUri) &&
+                            Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out reqUri))
+                        {
+                            string refDom = Store.RegistrableDomain(refUri.Host);
+                            string reqDom = Store.RegistrableDomain(reqUri.Host);
+                            if (!string.IsNullOrEmpty(refDom) && !string.IsNullOrEmpty(reqDom) &&
+                                !string.Equals(refDom, reqDom, StringComparison.OrdinalIgnoreCase))
+                            {
+                                e.Request.Headers.SetHeader("Referer", refUri.Scheme + "://" + refUri.Authority + "/");
+                            }
+                        }
+                    }
+
                     if (Shield.ShouldBlockRequest(e.Request.Uri, Url))
                     {
                         e.Response = core.Environment.CreateWebResourceResponse(Stream.Null, 403, "Blocked by Search Shield", "");

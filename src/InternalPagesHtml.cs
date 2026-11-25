@@ -1717,6 +1717,24 @@ namespace SearchBrowser
             <div class='sr-words'><div class='sr-title'>Try HTTPS first " + Info("Upgrade http:// to https://") + @"</div><div class='sr-detail'>An http:// page loads over HTTPS where the site has it</div></div>
             <div class='sr-control'>" + Sw("TryHttpsFirst", p.TryHttpsFirst) + @"</div>
           </div></div>
+          <div class='st-rule'></div>
+          <div class='sr'><div class='sr-main'>
+            <div class='sr-tile'><svg viewBox='0 0 16 16'><path d='M8 2.5a5.5 5.5 0 0 0-5.5 5.5M5 8a3 3 0 0 1 6 0c0 2-1 3.5-2 5M8 5a3 3 0 0 0-3 3c0 1.8.5 3.5 1.5 5M13.5 8A5.5 5.5 0 0 0 8 2.5'/></svg></div>
+            <div class='sr-words'><div class='sr-title'>Block browser fingerprinting (Farbling) " + Info("Per-session Canvas, WebGL, Audio & Hardware randomization") + @"</div><div class='sr-detail'>Randomizes Canvas, WebGL GPU, AudioContext, hardware hints & blocks Battery API</div></div>
+            <div class='sr-control'>" + Sw("AntiFingerprinting", p.AntiFingerprinting) + @"</div>
+          </div></div>
+          <div class='st-rule'></div>
+          <div class='sr'><div class='sr-main'>
+            <div class='sr-tile'><svg viewBox='0 0 16 16'><circle cx='8' cy='8' r='5.5'/><path d='M2.5 8h11M8 2.5a8 8 0 0 1 0 11M8 2.5a8 8 0 0 0 0 11'/></svg></div>
+            <div class='sr-words'><div class='sr-title'>Prevent WebRTC IP leaks " + Info("Stops sites from discovering your real/local IP behind a VPN (takes effect on restart)") + @"</div><div class='sr-detail'>Disables non-proxied UDP in WebRTC to protect your IP address</div></div>
+            <div class='sr-control'>" + Sw("BlockWebRtcLeaks", p.BlockWebRtcLeaks) + @"</div>
+          </div></div>
+          <div class='st-rule'></div>
+          <div class='sr'><div class='sr-main'>
+            <div class='sr-tile'><svg viewBox='0 0 16 16'><path d='M10 3.5 13.5 7 10 10.5M13 7H5.5a3 3 0 0 0 0 6H7'/></svg></div>
+            <div class='sr-words'><div class='sr-title'>Trim cross-site Referrer headers " + Info("Only send origin (https://site.com/) when navigating across domains") + @"</div><div class='sr-detail'>Stops third-party sites from seeing the full URL or search query you came from</div></div>
+            <div class='sr-control'>" + Sw("TrimCrossSiteReferrer", p.TrimCrossSiteReferrer) + @"</div>
+          </div></div>
         </div>
       </div>
 
@@ -1978,7 +1996,7 @@ namespace SearchBrowser
           <div class='sr'>
             <div class='sr-main'>
               <div class='sr-words'>
-                <div class='sr-title'>Search for Windows — v0.0011</div>
+                <div class='sr-title'>Search for Windows — v0.0012</div>
                 <div class='sr-detail'>Native Windows x64 + WebView2 port of driceroland/Search with Oriel UI design tokens. Lightweight ~290 KB executable, zero bundled Chromium or Electron overhead.</div>
               </div>
               <div class='sr-control'>
