@@ -28,6 +28,14 @@ namespace SearchBrowser
         // WebView2 instance is null until the tab is actually viewed (Lazy Restoration)
         public WebView2 WebView { get; private set; }
         public bool IsWebViewInitialized { get; private set; }
+        private static bool _extensionsLoadedOnce;
+        private string _privateDataDir;
+        private string _lastHttpsUpgradedUri;
+        public string HomeUrl { get; set; }
+        public BrowserTab OpenerTab { get; set; }
+        public bool IsMuted { get; set; }
+        public bool IsAudible { get; set; }
+        public double ReadProgress { get; set; }
 
         public event Action<BrowserTab> StateChanged;
         public event Action<BrowserTab, string> WebMessageReceived;
@@ -109,8 +117,8 @@ namespace SearchBrowser
             CoreWebView2Environment envToUse = sharedEnv;
             if (IsPrivate)
             {
-                string privDir = Path.Combine(Path.GetTempPath(), "SearchBrowser_Priv_" + Id);
-                envToUse = await CoreWebView2Environment.CreateAsync(null, privDir);
+                _privateDataDir = Path.Combine(Path.GetTempPath(), "SearchBrowser_Priv_" + Id);
+                envToUse = await CoreWebView2Environment.CreateAsync(null, _privateDataDir);
             }
 
             await WebView.EnsureCoreWebView2Async(envToUse);
@@ -127,12 +135,37 @@ namespace SearchBrowser
                 ? CoreWebView2PreferredColorScheme.Dark
                 : CoreWebView2PreferredColorScheme.Light;
 
-            // Inject Search's startup scripts before any frame renders
+            if (Store.Prefs != null && Store.Prefs.DefaultZoomPercent > 0 && Store.Prefs.DefaultZoomPercent != 100)
+            {
+                WebView.ZoomFactor = Store.Prefs.DefaultZoomPercent / 100.0;
+            }
+            if (Store.Prefs != null && !string.IsNullOrWhiteSpace(Store.Prefs.DownloadsFolder) && Store.Prefs.DownloadsFolder != "~\\Downloads" && Directory.Exists(Store.Prefs.DownloadsFolder))
+            {
+                try { core.Profile.DefaultDownloadFolderPath = Store.Prefs.DownloadsFolder; } catch { }
+            }
+
+            // Inject Search's startup scripts before any frame renders (including GPC + Peek trigger + Video click-to-play)
             await core.AddScriptToExecuteOnDocumentCreatedAsync(Shield.GetStartupScript());
             await core.AddScriptToExecuteOnDocumentCreatedAsync(PageFeatures.CurtainPickerBootstrapScript);
+            if ((Store.Prefs != null && Store.Prefs.SendGpc) || IsPrivate)
+            {
+                await core.AddScriptToExecuteOnDocumentCreatedAsync("try{Object.defineProperty(Navigator.prototype,'globalPrivacyControl',{get:function(){return true;},configurable:true});}catch(e){}");
+            }
+            if (Store.Prefs != null && Store.Prefs.VideosWaitForClick)
+            {
+                await core.AddScriptToExecuteOnDocumentCreatedAsync("document.addEventListener('play',function(e){var v=e.target;if(v&&v.tagName==='VIDEO'&&!v.__userClicked){v.pause();}},true);document.addEventListener('pointerdown',function(e){var v=e.target&&e.target.closest?e.target.closest('video'):null;if(v)v.__userClicked=true;},true);");
+            }
+            if (Store.Prefs != null && Store.Prefs.ShowReadingProgress)
+            {
+                await core.AddScriptToExecuteOnDocumentCreatedAsync("window.addEventListener('scroll',function(){try{var h=Math.max(1,document.documentElement.scrollHeight-window.innerHeight);var p=Math.min(1,Math.max(0,window.scrollY/h));if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(JSON.stringify({type:'readProgress',val:p.toFixed(3)}));}catch(e){}},{passive:true});");
+            }
 
-            // Load enabled extensions into profile if supported
-            await TryLoadExtensionsAsync(core);
+            // Load enabled extensions once on non-private profile (never into private tabs)
+            if (!IsPrivate && !_extensionsLoadedOnce)
+            {
+                _extensionsLoadedOnce = true;
+                await TryLoadExtensionsAsync(core);
+            }
 
             // Network-level ad & tracker blocker (Shield)
             core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
@@ -154,7 +187,7 @@ namespace SearchBrowser
 
             core.PermissionRequested += (s, e) =>
             {
-                if (e.PermissionKind == CoreWebView2PermissionKind.Notifications && !Store.Prefs.AllowNotifications)
+                if (e.PermissionKind == CoreWebView2PermissionKind.Notifications && (!Store.Prefs.AllowNotifications || IsPrivate))
                 {
                     e.State = CoreWebView2PermissionState.Deny;
                 }
@@ -169,14 +202,20 @@ namespace SearchBrowser
 
                 if (Store.Prefs.TryHttpsFirst && e.Uri.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
                 {
-                    e.Cancel = true;
-                    core.Navigate("https://" + e.Uri.Substring(7));
-                    return;
+                    string h = Address.DisplayHost(e.Uri);
+                    string upgraded = "https://" + e.Uri.Substring(7);
+                    if (!Address.IsLocalHost(h) && !string.Equals(_lastHttpsUpgradedUri, upgraded, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _lastHttpsUpgradedUri = upgraded;
+                        e.Cancel = true;
+                        core.Navigate(upgraded);
+                        return;
+                    }
                 }
 
                 if (Store.Prefs.RemoveClickTrackers || IsPrivate)
                 {
-                    string cleaned = CleanLink.Clean(e.Uri);
+                    string cleaned = CleanLink.Clean(e.Uri, false); // keep utm_ on nav (oriel privacy.ts:41)
                     if (!string.Equals(cleaned, e.Uri, StringComparison.Ordinal))
                     {
                         e.Cancel = true;
@@ -186,7 +225,7 @@ namespace SearchBrowser
                 }
 
                 // Pinned tabs external-domain Peek behavior (from Peek.swift peeksFromPin)
-                if (Pinned && Store.Prefs.PinsOpenExternalInPeek && e.IsUserInitiated &&
+                if (Pinned && (Store.Prefs.PinsKeepSite || Store.Prefs.PinsOpenExternalInPeek) && e.IsUserInitiated &&
                     !string.IsNullOrEmpty(Url) && Url != "about:blank" && !Url.StartsWith("search://"))
                 {
                     string hereDom = Store.RegistrableDomain(Address.DisplayHost(Url));
@@ -306,14 +345,38 @@ namespace SearchBrowser
 
             core.DownloadStarting += (s, e) =>
             {
+                if (Store.Prefs != null && !Store.Prefs.AskWhereToSave && !string.IsNullOrWhiteSpace(Store.Prefs.DownloadsFolder) && Store.Prefs.DownloadsFolder != "~\\Downloads" && Directory.Exists(Store.Prefs.DownloadsFolder))
+                {
+                    try
+                    {
+                        string fname = Path.GetFileName(e.ResultFilePath);
+                        if (!string.IsNullOrEmpty(fname))
+                            e.ResultFilePath = Path.Combine(Store.Prefs.DownloadsFolder, fname);
+                    }
+                    catch { }
+                }
                 MainWindow.RecordDownload(e.DownloadOperation);
             };
+
+            try
+            {
+                core.IsDocumentPlayingAudioChanged += (s, e) =>
+                {
+                    IsAudible = core.IsDocumentPlayingAudio;
+                    NotifyChanged();
+                };
+            }
+            catch { }
 
             IsWebViewInitialized = true;
 
             if (!string.IsNullOrWhiteSpace(Url) && Url.StartsWith("search://settings", StringComparison.OrdinalIgnoreCase))
             {
                 RenderSettingsTab();
+            }
+            else if (!string.IsNullOrWhiteSpace(Url) && Url.StartsWith("search://history", StringComparison.OrdinalIgnoreCase))
+            {
+                RenderHistoryTab();
             }
             else if (!string.IsNullOrWhiteSpace(Url) && Url != "about:blank")
             {
@@ -397,9 +460,40 @@ namespace SearchBrowser
             WebView.CoreWebView2.NavigateToString(InternalPagesHtml.BuildSettingsTabHtml(section));
         }
 
+        public void RenderHistoryTab()
+        {
+            if (WebView == null || !IsWebViewInitialized || WebView.CoreWebView2 == null) return;
+            Url = "search://history";
+            Title = "History";
+            FaviconUrl = "";
+            WebView.CoreWebView2.NavigateToString(InternalPagesHtml.BuildHistoryTabHtml());
+        }
+
+        public void CleanupPrivateStorage()
+        {
+            if (!IsPrivate || string.IsNullOrEmpty(_privateDataDir)) return;
+            string dir = _privateDataDir;
+            _privateDataDir = null;
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                await System.Threading.Tasks.Task.Delay(1200);
+                try { if (Directory.Exists(dir)) Directory.Delete(dir, true); } catch { }
+            });
+        }
+
         public void Navigate(string inputUrlOrSearch)
         {
             Touch();
+            if (!string.IsNullOrWhiteSpace(inputUrlOrSearch) && inputUrlOrSearch.StartsWith("search://history", StringComparison.OrdinalIgnoreCase))
+            {
+                Url = "search://history";
+                Title = "History";
+                FaviconUrl = "";
+                if (IsWebViewInitialized && WebView != null && WebView.CoreWebView2 != null)
+                    RenderHistoryTab();
+                NotifyChanged();
+                return;
+            }
             if (!string.IsNullOrWhiteSpace(inputUrlOrSearch) && inputUrlOrSearch.StartsWith("search://settings", StringComparison.OrdinalIgnoreCase))
             {
                 Url = inputUrlOrSearch;

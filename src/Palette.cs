@@ -4,11 +4,12 @@ using Microsoft.Win32;
 
 namespace SearchBrowser
 {
-    // Ported directly from driceroland/Search Sources/Search/Design.swift
+    // Exact 1:1 color tokens from oriel-ref/src/shared/tokens.css & driceroland/Search Design.swift
     public static class Palette
     {
         public static bool IsDark { get; private set; }
 
+        // Solid tokens (tokens.css:8-20, 152-164)
         public static SolidColorBrush Ground { get; private set; }
         public static SolidColorBrush Frame { get; private set; }
         public static SolidColorBrush Ink { get; private set; }
@@ -22,70 +23,121 @@ namespace SearchBrowser
         public static SolidColorBrush CardSurface { get; private set; }
         public static SolidColorBrush OverlayScrim { get; private set; }
 
+        // Translucent .on-frame tokens (tokens.css:185-204)
+        public static SolidColorBrush FrameWash { get; private set; }
+        public static SolidColorBrush FrameHover { get; private set; }
+        public static SolidColorBrush FrameTile { get; private set; }
+        public static SolidColorBrush FramePinLive { get; private set; }
+        public static SolidColorBrush FrameMuted { get; private set; }
+        public static SolidColorBrush FrameFaint { get; private set; }
+
+        // Ink alpha & UI surface tokens (tokens.css:34-46, menus.css:5-25, app.css:94-109)
+        public static SolidColorBrush InkHoverText { get; private set; }
+        public static SolidColorBrush InkMarkBg { get; private set; }
+        public static SolidColorBrush InkCloseDisc { get; private set; }
+        public static SolidColorBrush InkGhostEdge { get; private set; }
+        public static SolidColorBrush InkPickedOutline { get; private set; }
+        public static SolidColorBrush CardEdge { get; private set; }
+        public static SolidColorBrush MenuBg { get; private set; }
+        public static SolidColorBrush MenuBorder { get; private set; }
+        public static SolidColorBrush MenuHot { get; private set; }
+        public static SolidColorBrush MenuSep { get; private set; }
+        public static SolidColorBrush MenuSecondary { get; private set; }
+        public static SolidColorBrush CloseHoverBg { get; private set; }
+        public static SolidColorBrush CloseHoverFg { get; private set; }
+        public static SolidColorBrush UnreadRed { get; private set; }
+
         public static void ResolveTheme()
         {
             string mode = Store.Prefs != null ? Store.Prefs.Appearance : "System";
             if (string.Equals(mode, "Dark", StringComparison.OrdinalIgnoreCase))
-            {
                 IsDark = true;
-            }
             else if (string.Equals(mode, "Light", StringComparison.OrdinalIgnoreCase))
-            {
                 IsDark = false;
-            }
             else
-            {
                 IsDark = IsWindowsInDarkMode();
-            }
+
+            UnreadRed = Freeze(Color.FromRgb(237, 61, 54)); // #ED3D36
 
             if (IsDark)
             {
-                // Exact dark sRGB ratios from Design.swift Palette.NS
-                Ground = BrushFromWhite(0.105);      // #1B1B1B
-                Frame = BrushFromWhite(0.065);       // #101010
-                Ink = BrushFromWhite(0.93);          // #EDEDED
-                Muted = BrushFromWhite(0.58);        // #949494
-                Faint = BrushFromWhite(0.32);        // #525252
-                Hairline = BrushFromWhite(0.08);     // #141414 (ultra-subtle Oriel hairline)
-                Wash = BrushFromWhite(0.175);        // #2D2D2D
-                Hover = BrushFromWhite(0.15);        // #262626
-                Safe = BrushFromRgb(0.29, 0.87, 0.50);
-                Unsafe = BrushFromRgb(0.98, 0.75, 0.14);
-                CardSurface = BrushFromWhite(0.14);
-                OverlayScrim = new SolidColorBrush(Color.FromArgb(190, 19, 19, 19));
+                // Exact dark tokens (tokens.css:152-204)
+                Ground = Freeze(Color.FromRgb(28, 28, 28));          // #1C1C1C
+                Frame = Freeze(Color.FromRgb(19, 19, 19));           // #131313
+                Ink = Freeze(Color.FromRgb(237, 237, 237));          // #EDEDED
+                Muted = Freeze(Color.FromRgb(148, 148, 148));        // #949494
+                Faint = Freeze(Color.FromRgb(82, 82, 82));           // #525252
+                Hairline = Freeze(Color.FromRgb(51, 51, 51));        // #333333
+                Wash = Freeze(Color.FromRgb(45, 45, 45));            // #2D2D2D
+                Hover = Freeze(Color.FromRgb(38, 38, 38));           // #262626
+                Safe = Freeze(Color.FromRgb(74, 222, 128));          // #4ADE80
+                Unsafe = Freeze(Color.FromRgb(250, 191, 36));        // #FABF24
+                CardSurface = Ground;                                // #1C1C1C
+                OverlayScrim = Freeze(Color.FromArgb(189, 28, 28, 28)); // 74%
+
+                FrameWash = Freeze(Color.FromArgb(22, 255, 255, 255));    // .0865
+                FrameHover = Freeze(Color.FromArgb(15, 255, 255, 255));   // .0595
+                FrameTile = Freeze(Color.FromArgb(11, 255, 255, 255));    // .0432
+                FramePinLive = Freeze(Color.FromArgb(32, 255, 255, 255)); // .1243
+                FrameMuted = Freeze(Color.FromArgb(139, 255, 255, 255));  // .5459
+                FrameFaint = Freeze(Color.FromArgb(68, 255, 255, 255));   // .2649
+
+                InkHoverText = Freeze(Color.FromArgb(179, 237, 237, 237));    // .70
+                InkMarkBg = Freeze(Color.FromArgb(15, 237, 237, 237));        // .06
+                InkCloseDisc = Freeze(Color.FromArgb(18, 237, 237, 237));     // .07
+                InkGhostEdge = Freeze(Color.FromArgb(41, 237, 237, 237));     // .16
+                InkPickedOutline = Freeze(Color.FromArgb(89, 237, 237, 237)); // .35
+                CardEdge = Freeze(Color.FromArgb(20, 255, 255, 255));         // .08
+
+                MenuBg = Freeze(Color.FromArgb(247, 40, 40, 40));             // rgba(40,40,40,.97)
+                MenuBorder = Freeze(Color.FromArgb(46, 255, 255, 255));       // .18
+                MenuHot = Freeze(Color.FromArgb(23, 255, 255, 255));          // .09
+                MenuSep = Freeze(Color.FromArgb(31, 255, 255, 255));          // .12
+                MenuSecondary = Freeze(Color.FromArgb(140, 255, 255, 255));   // .55
+                CloseHoverBg = Freeze(Color.FromArgb(51, 232, 72, 56));       // .20
+                CloseHoverFg = Freeze(Color.FromRgb(255, 107, 90));           // #FF6B5A
             }
             else
             {
-                // Exact light sRGB ratios from Design.swift Palette.NS
-                Ground = BrushFromWhite(1.0);        // #FFFFFF
-                Frame = BrushFromWhite(0.955);       // #F4F4F4
-                Ink = BrushFromWhite(0.09);          // #171717
-                Muted = BrushFromWhite(0.55);        // #8C8C8C
-                Faint = BrushFromWhite(0.83);        // #D4D4D4
-                Hairline = BrushFromWhite(0.91);     // #E8E8E8
-                Wash = BrushFromWhite(0.937);        // #EFEFEF
-                Hover = BrushFromWhite(0.965);       // #F6F6F6
-                Safe = BrushFromRgb(0.08, 0.50, 0.24);
-                Unsafe = BrushFromRgb(0.71, 0.33, 0.04);
-                CardSurface = BrushFromWhite(0.99);
-                OverlayScrim = new SolidColorBrush(Color.FromArgb(190, 255, 255, 255));
-            }
+                // Exact light tokens (tokens.css:8-46, 185-194)
+                Ground = Freeze(Color.FromRgb(255, 255, 255));       // #FFFFFF
+                Frame = Freeze(Color.FromRgb(244, 244, 244));        // #F4F4F4
+                Ink = Freeze(Color.FromRgb(23, 23, 23));             // #171717
+                Muted = Freeze(Color.FromRgb(140, 140, 140));        // #8C8C8C
+                Faint = Freeze(Color.FromRgb(212, 212, 212));        // #D4D4D4
+                Hairline = Freeze(Color.FromRgb(232, 232, 232));     // #E8E8E8
+                Wash = Freeze(Color.FromRgb(239, 239, 239));         // #EFEFEF
+                Hover = Freeze(Color.FromRgb(246, 246, 246));        // #F6F6F6
+                Safe = Freeze(Color.FromRgb(20, 128, 61));           // #14803D
+                Unsafe = Freeze(Color.FromRgb(181, 84, 10));         // #B5540A
+                CardSurface = Ground;                                // #FFFFFF
+                OverlayScrim = Freeze(Color.FromArgb(189, 255, 255, 255)); // 74%
 
-            Ground.Freeze();
-            Frame.Freeze();
-            Ink.Freeze();
-            Muted.Freeze();
-            Faint.Freeze();
-            Hairline.Freeze();
-            Wash.Freeze();
-            Hover.Freeze();
-            Safe.Freeze();
-            Unsafe.Freeze();
-            CardSurface.Freeze();
-            OverlayScrim.Freeze();
+                FrameWash = Freeze(Color.FromArgb(16, 0, 0, 0));     // .0628
+                FrameHover = Freeze(Color.FromArgb(11, 0, 0, 0));    // .0419
+                FrameTile = Freeze(Color.FromArgb(8, 0, 0, 0));      // .0314
+                FramePinLive = Freeze(Color.FromArgb(25, 0, 0, 0));  // .0995
+                FrameMuted = Freeze(Color.FromArgb(108, 0, 0, 0));   // .4241
+                FrameFaint = Freeze(Color.FromArgb(33, 0, 0, 0));    // .1309
+
+                InkHoverText = Freeze(Color.FromArgb(179, 23, 23, 23));    // .70
+                InkMarkBg = Freeze(Color.FromArgb(15, 23, 23, 23));        // .06
+                InkCloseDisc = Freeze(Color.FromArgb(18, 23, 23, 23));     // .07
+                InkGhostEdge = Freeze(Color.FromArgb(41, 23, 23, 23));     // .16
+                InkPickedOutline = Freeze(Color.FromArgb(89, 23, 23, 23)); // .35
+                CardEdge = Freeze(Color.FromArgb(20, 0, 0, 0));            // .08
+
+                MenuBg = Freeze(Color.FromArgb(247, 246, 246, 246));       // rgba(246,246,246,.97)
+                MenuBorder = Freeze(Color.FromArgb(66, 0, 0, 0));          // .26
+                MenuHot = Freeze(Color.FromArgb(16, 0, 0, 0));             // .063
+                MenuSep = Freeze(Color.FromArgb(26, 0, 0, 0));             // .10
+                MenuSecondary = Freeze(Color.FromArgb(128, 0, 0, 0));      // .50
+                CloseHoverBg = Freeze(Color.FromArgb(31, 196, 43, 28));    // .12
+                CloseHoverFg = Freeze(Color.FromRgb(196, 43, 28));         // #C42B1C
+            }
         }
 
-        private static bool IsWindowsInDarkMode()
+        public static bool IsWindowsInDarkMode()
         {
             try
             {
@@ -102,18 +154,11 @@ namespace SearchBrowser
             return false;
         }
 
-        private static SolidColorBrush BrushFromWhite(double w)
+        private static SolidColorBrush Freeze(Color c)
         {
-            byte b = (byte)Math.Max(0, Math.Min(255, Math.Round(w * 255.0)));
-            return new SolidColorBrush(Color.FromRgb(b, b, b));
-        }
-
-        private static SolidColorBrush BrushFromRgb(double r, double g, double b)
-        {
-            return new SolidColorBrush(Color.FromRgb(
-                (byte)Math.Max(0, Math.Min(255, Math.Round(r * 255.0))),
-                (byte)Math.Max(0, Math.Min(255, Math.Round(g * 255.0))),
-                (byte)Math.Max(0, Math.Min(255, Math.Round(b * 255.0)))));
+            var b = new SolidColorBrush(c);
+            b.Freeze();
+            return b;
         }
     }
 }

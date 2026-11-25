@@ -434,13 +434,21 @@ namespace SearchBrowser
       }
     }
 
-    // Shift+Click on an <a href> triggers Search's Link Peek card!
-    if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
-      var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
-      if (a && a.href && /^https?:\/\//i.test(a.href)) {
-        e.preventDefault();
-        e.stopPropagation();
-        sendToHost({ type: 'peekLink', url: a.href });
+    // Link Peek & Alt-Click Split View (host decides based on PeekTrigger / AltClickOpensSplitView prefs)
+    var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+    if (a && a.href && /^https?:\/\//i.test(a.href)) {
+      if (e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault(); e.stopPropagation();
+        sendToHost({ type: 'peekLink', url: a.href, mod: 'shift' });
+      } else if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+        e.preventDefault(); e.stopPropagation();
+        sendToHost({ type: 'altLink', url: a.href });
+      } else if (e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault(); e.stopPropagation();
+        sendToHost({ type: 'peekLink', url: a.href, mod: 'alt-shift' });
+      } else if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey) {
+        e.preventDefault(); e.stopPropagation();
+        sendToHost({ type: 'peekLink', url: a.href, mod: 'ctrl-alt' });
       }
     }
   }, true);
@@ -519,14 +527,17 @@ namespace SearchBrowser
     } catch (err) {}
   }, true);
 
-  // Keyboard shortcuts inside WebView2 forwarded to host
+  // Keyboard shortcuts inside WebView2 forwarded to host (respects editable fields for page-first keys)
   document.addEventListener('keydown', function(e) {
     var k = (e.key || '').toLowerCase();
     var ctrl = e.ctrlKey;
     var alt = e.altKey;
     var sh = e.shiftKey;
-    if (k === 'escape' || k === 'f3' || k === 'f5' || k === 'f6') {
-      if (k === 'f5' || k === 'f6' || k === 'f3') e.preventDefault();
+    var el = document.activeElement;
+    var inEdit = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+    if (k === 'escape' || k === 'f2' || k === 'f3' || k === 'f5' || k === 'f6' || k === 'f11' || k === 'f12') {
+      if (k === 'f2' && inEdit) return;
+      if (k === 'f3' || k === 'f5' || k === 'f6' || k === 'f11') e.preventDefault();
       sendToHost({ type: 'shortcut', key: k, shift: sh, ctrl: ctrl, alt: alt });
       return;
     }
@@ -535,24 +546,28 @@ namespace SearchBrowser
       sendToHost({ type: 'shortcut', key: k, shift: false, ctrl: false, alt: true });
       return;
     }
-    if (alt && !ctrl && !sh && (k === 'arrowleft' || k === 'arrowright' || k === 'd')) {
+    if (alt && !ctrl && !sh && (k === 'arrowleft' || k === 'arrowright' || k === 'd' || k === 'home')) {
       e.preventDefault();
       sendToHost({ type: 'shortcut', key: k, shift: false, ctrl: false, alt: true });
       return;
     }
-    if (alt && sh && !ctrl && (k === 'n' || k === 'l')) {
+    if (alt && sh && !ctrl && (k === 'n' || k === 'l' || k === 'c' || k === 'd' || k === 'arrowleft' || k === 'arrowright')) {
       e.preventDefault();
       sendToHost({ type: 'shortcut', key: k, shift: true, ctrl: false, alt: true });
       return;
     }
-    if (ctrl && alt && (k === 'n' || k === 'l')) {
-      e.preventDefault();
-      sendToHost({ type: 'shortcut', key: k, shift: sh, ctrl: true, alt: true });
-      return;
-    }
     if (ctrl && !alt) {
-      if ((!sh && (k === 'l' || k === 'k' || k === 't' || k === 'w' || k === 'r' || k === 'h' || k === 'j' || k === 'y' || k === 's' || k === 'd' || k === 'n' || k === ',' || k === 'f' || k === 'g' || k === '=' || k === '+' || k === '-' || k === '0' || k === '[' || k === ']' || (k >= '1' && k <= '9'))) ||
-          (sh && (k === 'r' || k === 'h' || k === 'p' || k === 's' || k === 'b' || k === 'n' || k === 't' || k === 'u' || k === 'd' || k === 'c' || k === 'g' || k === 'w'))) {
+      if (k === 'tab' || k === 'pageup' || k === 'pagedown' || k === 'f4') {
+        e.preventDefault();
+        sendToHost({ type: 'shortcut', key: k, shift: sh, ctrl: true, alt: false });
+        return;
+      }
+      if (!sh && k === 'z' && !inEdit) {
+        sendToHost({ type: 'shortcut', key: 'z', shift: false, ctrl: true, alt: false });
+        return;
+      }
+      if ((!sh && (k === 'l' || k === 'k' || k === 't' || k === 'w' || k === 'r' || k === 'h' || k === 'j' || k === 's' || k === 'd' || k === 'n' || k === 'o' || k === 'p' || k === ',' || k === 'f' || k === 'g' || k === '=' || k === '+' || k === '-' || k === '0' || k === '[' || k === ']' || (k >= '1' && k <= '9'))) ||
+          (sh && (k === 'r' || k === 'h' || k === 'p' || k === 's' || k === 'b' || k === 'n' || k === 't' || k === 'u' || k === 'd' || k === 'c' || k === 'g' || k === 'w' || k === 'i' || k === 'o' || k === 'm' || k === 'q' || k === 'v' || k === 'delete' || k === '[' || k === ']'))) {
         e.preventDefault();
         sendToHost({ type: 'shortcut', key: k, shift: sh, ctrl: true, alt: false });
       }

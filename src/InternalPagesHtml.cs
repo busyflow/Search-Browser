@@ -68,6 +68,21 @@ namespace SearchBrowser
             }
             string itemsJson = "[" + string.Join(",", suggestions) + "]";
 
+            bool isThemed = wallMode != "Off";
+            var homeGridHtml = new StringBuilder();
+            if (Store.Prefs != null && Store.Prefs.ShowHomeBookmarksOnNewTab && Store.Bookmarks.Count > 0)
+            {
+                homeGridHtml.Append("<div id='homeGrid' class='home-grid'>");
+                foreach (var bm in Store.Bookmarks.Take(8))
+                {
+                    string letter = string.IsNullOrEmpty(bm.Title) ? "•" : bm.Title.Substring(0, 1).ToUpperInvariant();
+                    homeGridHtml.Append("<button class='home-tile' onclick=\"send({type:'navigate',text:'" + Esc(bm.Url) + "'})\">" +
+                        "<span class='home-mark'>" + EscHtml(letter) + "</span>" +
+                        "<span class='home-title'>" + EscHtml(bm.Title) + "</span></button>");
+                }
+                homeGridHtml.Append("</div>");
+            }
+
             return @"<!DOCTYPE html>
 <html>
 <head>
@@ -89,7 +104,7 @@ namespace SearchBrowser
     overflow: hidden;
     " + wallStyle + @"
     color: var(--ink);
-    font-family: 'Segoe UI Variable Text', 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     user-select: none;
   }
@@ -155,7 +170,7 @@ namespace SearchBrowser
     padding: 6px;
     border-radius: 14px;
     background: var(--ground);
-    box-shadow: inset 0 0 0 1px var(--hairline), 0 6px 40px rgba(0,0,0,0.12);
+    box-shadow: inset 0 0 0 1px var(--hairline), 0 6px 40px rgba(0,0,0,0.07);
     display: none;
     z-index: 10;
   }
@@ -167,11 +182,11 @@ namespace SearchBrowser
     border-radius: 9px;
     cursor: pointer;
   }
-  .field-row:hover, .field-row.picked {
-    background: var(--wash);
-  }
+  .field-row:hover { background: var(--hover); }
+  .field-row.picked { background: var(--wash); }
   .field-key {
     font-size: 13px;
+    line-height: 16px;
     color: var(--ink);
     white-space: nowrap;
     overflow: hidden;
@@ -179,12 +194,40 @@ namespace SearchBrowser
   }
   .field-title {
     font-size: 12px;
+    line-height: 15px;
     color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin-left: auto;
+    margin-left: 8px;
   }
+  .home-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .home-tile {
+    height: 50px;
+    border-radius: 14px;
+    border: 1px solid var(--hairline);
+    background: var(--ground);
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 140ms, color 140ms;
+  }
+  .home-tile:hover { background: var(--hover); color: var(--ink); }
+  .home-mark {
+    width: 16px; height: 16px; border-radius: 4px;
+    background: rgba(var(--ink-rgb), 0.06);
+    display: grid; place-items: center; font-size: 9px; font-weight: 500; flex: none;
+  }
+  .home-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   /* Bottom-right Settings gear door (Blank.tsx SettingsDoor: 26x26, radius 8, 14px from corner) */
   .blank-door {
     position: fixed;
@@ -201,24 +244,29 @@ namespace SearchBrowser
     cursor: pointer;
     transition: background-color 140ms cubic-bezier(0,0,0.58,1), color 140ms cubic-bezier(0,0,0.58,1);
   }
+  .blank-door.themed {
+    background: var(--ground);
+    box-shadow: inset 0 0 0 1px var(--hairline);
+  }
   .blank-door:hover {
     background: var(--hover);
-    color: rgba(var(--ink-rgb), 0.75);
+    color: rgba(var(--ink-rgb), 0.70);
   }
 </style>
 </head>
 <body>
   <div class='empty-page'>
     <div class='field-wrap'>
-      <div class='field-breath'></div>
+      " + (isThemed ? "" : "<div class='field-breath'></div>") + @"
       <div class='field'>
         <input id='addr' type='text' spellcheck='false' autocomplete='off' placeholder='Enter a web address' autofocus />
       </div>
       <div id='list' class='field-list'></div>
+      " + homeGridHtml.ToString() + @"
     </div>
   </div>
 
-  <button class='blank-door' title='Settings (Ctrl+,)' onclick=""send({type:'openSettings'})"">
+  <button class='blank-door " + (isThemed ? "themed" : "") + @"' title='Settings (Ctrl+,)' onclick=""send({type:'openSettings'})"">
     <svg width='12.1' height='12.1' viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'>
       <path d='M6.81 3.56L7.02 1.56L8.98 1.56L9.19 3.56A4.6 4.6 0 0 1 11.4 4.84L13.24 4.02L14.22 5.72L12.59 6.91A4.6 4.6 0 0 1 12.59 9.09L14.22 10.28L13.24 11.98L11.4 11.16A4.6 4.6 0 0 1 9.19 12.44L8.98 14.44L7.02 14.44L6.81 12.44A4.6 4.6 0 0 1 4.6 11.16L2.76 11.98L1.78 10.28L3.41 9.09A4.6 4.6 0 0 1 3.41 6.91L1.78 5.72L2.76 4.02L4.6 4.84A4.6 4.6 0 0 1 6.81 3.56Z'/>
       <circle cx='8' cy='8' r='1.9'/>
@@ -356,7 +404,7 @@ namespace SearchBrowser
 
         private static string Info(string tip)
         {
-            return "<span class='st-info' title='" + EscHtml(tip) + "'>i</span>";
+            return "<button type='button' class='st-info' title='" + EscHtml(tip) + "' onclick='toggleInfo(this)' data-more='" + EscHtml(tip) + "'>i</button>";
         }
 
         public static string BuildSettingsTabHtml(string activeSection = "general")
@@ -365,7 +413,7 @@ namespace SearchBrowser
             bool dark = Palette.IsDark;
             string ground = dark ? "#1C1C1C" : "#FFFFFF";
             string ink = dark ? "#EDEDED" : "#171717";
-            string inkRgb = dark ? "237 237 237" : "23 23 23";
+            string inkRgb = dark ? "237,237,237" : "23,23,23";
             string muted = dark ? "#949494" : "#8C8C8C";
             string faint = dark ? "#525252" : "#D4D4D4";
             string hairline = dark ? "#333333" : "#E8E8E8";
@@ -476,7 +524,7 @@ namespace SearchBrowser
     height: 100%;
     background: var(--ground);
     color: var(--ink);
-    font-family: 'Segoe UI Variable Text', 'Plus Jakarta Sans', 'Segoe UI', system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
     font-size: 13px;
     line-height: 15.5px;
     -webkit-font-smoothing: antialiased;
@@ -494,7 +542,7 @@ namespace SearchBrowser
     flex-direction: column;
     gap: 2px;
     padding: 8px;
-    background: " + railBg + @";
+    background: color-mix(in srgb, var(--wash) 45%, transparent);
     overflow-y: auto;
   }
   .rail-title { padding: 14px 10px 10px; font-weight: 600; font-size: 13px; }
@@ -532,7 +580,7 @@ namespace SearchBrowser
 
   .st-hairline { width: 1px; flex: none; background: var(--hairline); }
 
-  .st-content { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: 38px; overflow-y: auto; scrollbar-width: none; }
+  .st-content { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: 44px; overflow-y: auto; scrollbar-width: none; }
   .st-content::-webkit-scrollbar, .rail::-webkit-scrollbar { display: none; }
   .st-page { display: none; width: 100%; max-width: var(--settings-column); margin: 0 auto; padding: 0 24px 64px; flex-direction: column; gap: 22px; }
   .st-page.on { display: flex; }
@@ -572,7 +620,7 @@ namespace SearchBrowser
     background: var(--wash);
     color: var(--ink);
   }
-  .sr-tile svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .sr-tile svg { width: 12px; height: 12px; stroke: rgba(var(--ink-rgb), 0.78); fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
   .sr-words { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .sr-title { font-size: 13px; color: var(--ink); display: flex; align-items: center; gap: 5px; }
   .sr-detail { font-size: 11.5px; line-height: 13.7px; color: var(--muted); }
@@ -678,7 +726,8 @@ namespace SearchBrowser
     font-weight: 700;
     color: #fff;
   }
-  .st-chk-box.on { background: #3B82F6; border-color: #3B82F6; }
+  .st-chk-box.on { background: var(--ink); border-color: var(--ink); color: var(--ground); }
+  .sr-more { font-size: 11.5px; line-height: 15px; color: var(--muted); padding: 4px 0 0 38px; }
 
   .st-pics { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
   .st-pic { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; }
@@ -1169,11 +1218,11 @@ namespace SearchBrowser
             <div class='sr-wide'>
               <div class='st-pics'>
                 <div class='st-pic " + (p.WindowButtonsStyle == "Inline" ? "on" : "") + @"' onclick=""setPref('WindowButtonsStyle','Inline')"">
-                  <div class='st-pic-ring'><span class='st-pic-frame'><span style='position:absolute;left:6px;top:6px;width:4px;height:4px;border-radius:50%;background:#ef4444'></span><span style='position:absolute;left:12px;top:6px;width:4px;height:4px;border-radius:50%;background:#eab308'></span><span style='position:absolute;left:18px;top:6px;width:4px;height:4px;border-radius:50%;background:#22c55e'></span></span></div>
+                  <div class='st-pic-ring'><span class='st-pic-frame'><span style='position:absolute;right:6px;top:6px;display:flex;gap:3px'><span style='width:5px;height:5px;border-radius:1.5px;background:var(--faint)'></span><span style='width:5px;height:5px;border-radius:1.5px;background:var(--faint)'></span><span style='width:5px;height:5px;border-radius:1.5px;background:var(--faint)'></span></span><span style='position:absolute;left:18px;top:14px;right:4px;bottom:4px;background:var(--ground);border-radius:4px;border:1px solid var(--hairline)'></span></span></div>
                   <span class='st-pic-label'>Inline</span>
                 </div>
                 <div class='st-pic " + (p.WindowButtonsStyle == "Classic" ? "on" : "") + @"' onclick=""setPref('WindowButtonsStyle','Classic')"">
-                  <div class='st-pic-ring'><span class='st-pic-frame'><span style='position:absolute;right:5px;top:5px;width:16px;height:5px;border-radius:2px;background:var(--faint)'></span></span></div>
+                  <div class='st-pic-ring'><span class='st-pic-frame'><span style='position:absolute;right:0;top:0;width:24px;height:9px;background:var(--wash);border-bottom:1px solid var(--hairline);border-left:1px solid var(--hairline)'></span><span style='position:absolute;left:18px;top:14px;right:4px;bottom:4px;background:var(--ground);border-radius:4px;border:1px solid var(--hairline)'></span></span></div>
                   <span class='st-pic-label'>Classic</span>
                 </div>
               </div>
@@ -1196,7 +1245,7 @@ namespace SearchBrowser
           <div class='sr'><div class='sr-main'>
             <div class='sr-tile'><svg viewBox='0 0 16 16'><path d='M3 8h9M9 5l3 3-3 3'/></svg></div>
             <div class='sr-words'><div class='sr-title'>New tab position " + Info("Where Ctrl+T opens") + @"</div><div class='sr-detail'>Where a link or Ctrl+T's new tab goes in the row</div></div>
-            <div class='sr-control'>" + Sel("NewTabPosition", p.NewTabPosition, "After current", "At end") + @"</div>
+            <div class='sr-control'>" + Sel("NewTabPosition", p.NewTabPosition, "After current", "At end", "Top") + @"</div>
           </div></div>
           <div class='st-rule'></div>
           <div class='sr'><div class='sr-main'>
@@ -1285,7 +1334,7 @@ namespace SearchBrowser
           <div class='sr'><div class='sr-main'>
             <div class='sr-tile'><svg viewBox='0 0 16 16'><circle cx='8' cy='8' r='5.5'/><path d='M8 4.5v3.8l2.5 1.5'/></svg></div>
             <div class='sr-words'><div class='sr-title'>Close tabs you leave alone " + Info("Auto-archive old unpinned tabs") + @"</div><div class='sr-detail'>Pinned, named and grouped tabs stay. Ctrl+Shift+T brings one back</div></div>
-            <div class='sr-control'>" + Sel("CloseIdleTabs", p.CloseIdleTabs, "Never", "After 12 hours", "After 1 day", "After 7 days") + @"</div>
+            <div class='sr-control'>" + Sel("CloseIdleTabs", p.CloseIdleTabs, "Never", "After 12 hours", "After 1 day", "After 7 days", "After a month") + @"</div>
           </div></div>
         </div>
       </div>
@@ -1338,13 +1387,13 @@ namespace SearchBrowser
           <div class='sr'><div class='sr-main'>
             <div class='sr-tile'><svg viewBox='0 0 16 16'><circle cx='7' cy='7' r='4.2'/><path d='m10.2 10.2 3.2 3.2'/></svg></div>
             <div class='sr-words'><div class='sr-title'>Search with</div><div class='sr-detail'>Where words that aren't an address go</div></div>
-            <div class='sr-control'>" + Sel("SearchEngineName", p.SearchEngineName, "DuckDuckGo", "Google", "Brave Search") + @"</div>
+            <div class='sr-control'>" + Sel("SearchEngineName", p.SearchEngineName, "DuckDuckGo", "Google", "Brave Search", "Bing", "Ecosia", "Startpage", "Kagi", "Qwant") + @"</div>
           </div></div>
           <div class='st-rule'></div>
           <div class='sr'><div class='sr-main'>
             <div class='sr-tile'><svg viewBox='0 0 16 16'><path d='M8 12V4M5 7l3-3 3 3'/></svg></div>
             <div class='sr-words'><div class='sr-title'>Shift-Return searches with " + Info("Secondary search engine on Shift+Enter") + @"</div><div class='sr-detail'>Off: Shift-Return does what Return does</div></div>
-            <div class='sr-control'>" + Sel("ShiftReturnEngine", p.ShiftReturnEngine, "Off", "Google", "DuckDuckGo", "Brave Search") + @"</div>
+            <div class='sr-control'>" + Sel("ShiftReturnEngine", p.ShiftReturnEngine, "Off", "Google", "DuckDuckGo", "Brave Search", "Bing", "Ecosia", "Startpage", "Kagi", "Qwant") + @"</div>
           </div></div>
           <div class='st-rule'></div>
           <div class='sr'><div class='sr-main'>
@@ -1445,9 +1494,9 @@ namespace SearchBrowser
             <div class='sr-tile'><svg viewBox='0 0 16 16'><circle cx='7' cy='7' r='4.2'/><path d='m10.2 10.2 3.2 3.2M5.5 7h3M7 5.5v3'/></svg></div>
             <div class='sr-words'><div class='sr-title'>Page zoom</div><div class='sr-detail'>Where every site starts. Ctrl+Plus and Ctrl+Minus are kept for each site</div></div>
             <div class='sr-control'>
-              <button class='pill-st' onclick=""act('zoomChange','-10')"">−</button>
-              <span style='font-size:12px;min-width:38px;text-align:center'>" + p.DefaultZoomPercent + @"%</span>
-              <button class='pill-st' onclick=""act('zoomChange','+10')"">+</button>
+              <button class='pill-st' onclick=""act('zoomChange','-5')"">−</button>
+              <button class='pill-st' title='Reset to 100%' onclick=""act('zoomChange','reset')"" style='min-width:46px;text-align:center'>" + p.DefaultZoomPercent + @"%</button>
+              <button class='pill-st' onclick=""act('zoomChange','+5')"">+</button>
             </div>
           </div></div>
           <div class='st-rule'></div>
@@ -1773,7 +1822,7 @@ namespace SearchBrowser
           <div class='sr'><div class='sr-main'>
             <div class='sr-tile'><svg viewBox='0 0 16 16'><circle cx='8' cy='8' r='4.5'/><circle cx='8' cy='8' r='1.5'/></svg></div>
             <div class='sr-words'><div class='sr-title'>Peek at a link " + Info("Floating card preview without leaving tab") + @"</div><div class='sr-detail'>Its page opens in a panel over the one you're reading</div></div>
-            <div class='sr-control'>" + Sel("PeekTrigger", p.PeekTrigger, "Shift-click", "Alt-click", "Off") + @"</div>
+            <div class='sr-control'>" + Sel("PeekTrigger", p.PeekTrigger, "Off", "Shift-click", "Alt-Shift-click", "Ctrl-Alt-click") + @"</div>
           </div></div>
           <div class='st-rule'></div>
           <div class='sr'><div class='sr-main'>
@@ -1919,7 +1968,7 @@ namespace SearchBrowser
           <div class='sr'>
             <div class='sr-main'>
               <div class='sr-words'>
-                <div class='sr-title'>Search for Windows — v0.0008</div>
+                <div class='sr-title'>Search for Windows — v0.0009</div>
                 <div class='sr-detail'>Native Windows x64 + WebView2 port of driceroland/Search with Oriel UI design tokens. Lightweight ~290 KB executable, zero bundled Chromium or Electron overhead.</div>
               </div>
               <div class='sr-control'>
@@ -1944,6 +1993,22 @@ namespace SearchBrowser
     });
     var target = document.getElementById('sec-' + id);
     if (target) target.classList.add('on');
+    document.querySelectorAll('.sr, .st-line, .st-group, .st-rule').forEach(function(el) { el.style.display = ''; });
+  }
+
+  function toggleInfo(btn) {
+    if (!btn) return;
+    var sr = btn.closest('.sr');
+    if (!sr) return;
+    var existing = sr.querySelector('.sr-more');
+    if (existing) {
+      existing.remove();
+      return;
+    }
+    var more = document.createElement('div');
+    more.className = 'sr-more';
+    more.textContent = btn.getAttribute('data-more') || btn.getAttribute('title') || '';
+    sr.appendChild(more);
   }
 
   function filterSettings(q) {
@@ -1952,9 +2017,21 @@ namespace SearchBrowser
       showSec(curSec || 'general');
       return;
     }
-    document.querySelectorAll('.st-page').forEach(function(p) {
-      var match = p.innerText.toLowerCase().indexOf(q) >= 0;
-      p.classList.toggle('on', match);
+    document.querySelectorAll('.st-page').forEach(function(page) {
+      var pageHas = false;
+      page.querySelectorAll('.st-group').forEach(function(grp) {
+        var grpHas = false;
+        var rows = grp.querySelectorAll('.sr, .st-line');
+        rows.forEach(function(r) {
+          var hit = r.innerText.toLowerCase().indexOf(q) >= 0;
+          r.style.display = hit ? '' : 'none';
+          if (hit) grpHas = true;
+        });
+        grp.querySelectorAll('.st-rule').forEach(function(rule) { rule.style.display = 'none'; });
+        grp.style.display = grpHas ? '' : 'none';
+        if (grpHas) pageHas = true;
+      });
+      page.classList.toggle('on', pageHas);
     });
   }
 
@@ -1966,6 +2043,18 @@ namespace SearchBrowser
     });
   }
 
+  document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'f' || e.key === 'F')) {
+      var fb = document.getElementById('findBox');
+      if (fb) {
+        e.preventDefault();
+        e.stopPropagation();
+        fb.focus();
+        fb.select();
+      }
+    }
+  });
+
   function act(action, arg) {
     var sc = document.querySelector('.st-content');
     if (sc) sessionStorage.setItem('st_scroll', sc.scrollTop);
@@ -1975,8 +2064,17 @@ namespace SearchBrowser
   }
 
   function togglePref(prop) {
-    if (typeof event !== 'undefined' && event.currentTarget && event.currentTarget.classList) {
-      event.currentTarget.classList.toggle('on');
+    if (typeof event !== 'undefined' && event.currentTarget) {
+      var el = event.currentTarget;
+      if (el.classList && el.classList.contains('st-sw')) {
+        el.classList.toggle('on');
+      } else {
+        var box = el.querySelector ? el.querySelector('.st-chk-box') : null;
+        if (box) {
+          var isOn = box.classList.toggle('on');
+          box.textContent = isOn ? '✓' : '';
+        }
+      }
     }
     act('togglePref', prop);
   }
@@ -1991,6 +2089,200 @@ namespace SearchBrowser
     var y = parseInt(sessionStorage.getItem('st_scroll') || '0', 10);
     if (sc && y > 0) sc.scrollTop = y;
   })();
+</script>
+</body>
+</html>";
+        }
+
+        public static string BuildHistoryTabHtml()
+        {
+            bool dark = Palette.IsDark;
+            string ground = dark ? "#1C1C1C" : "#FFFFFF";
+            string ink = dark ? "#EDEDED" : "#171717";
+            string muted = dark ? "#949494" : "#8C8C8C";
+            string faint = dark ? "#525252" : "#D4D4D4";
+            string hairline = dark ? "#333333" : "#E8E8E8";
+            string wash = dark ? "#2D2D2D" : "#EFEFEF";
+            string hover = dark ? "#262626" : "#F6F6F6";
+            string unsafeRed = dark ? "#FF6961" : "#D93025";
+
+            var groups = new List<KeyValuePair<string, List<HistoryItem>>>();
+            DateTime nowLocal = DateTime.Now;
+            DateTime todayStart = new DateTime(nowLocal.Year, nowLocal.Month, nowLocal.Day);
+            DateTime yesterdayStart = todayStart.AddDays(-1);
+
+            foreach (var h in Store.History.Take(500))
+            {
+                DateTime dt;
+                if (!DateTime.TryParse(h.DateIso, null, System.Globalization.DateTimeStyles.RoundtripKind, out dt))
+                    dt = DateTime.UtcNow;
+                dt = dt.ToLocalTime();
+                string dayLabel = dt >= todayStart ? "Today"
+                    : dt >= yesterdayStart ? "Yesterday"
+                    : dt.ToString("d MMMM");
+
+                if (groups.Count == 0 || groups[groups.Count - 1].Key != dayLabel)
+                    groups.Add(new KeyValuePair<string, List<HistoryItem>>(dayLabel, new List<HistoryItem>()));
+                groups[groups.Count - 1].Value.Add(h);
+            }
+
+            var daysHtml = new StringBuilder();
+            if (groups.Count == 0)
+            {
+                daysHtml.Append("<div class='bt-card bt-nothing' id='emptyState'>Nothing yet.</div>");
+            }
+            else
+            {
+                foreach (var g in groups)
+                {
+                    daysHtml.Append("<section class='hp-day'><div class='bt-caption'>" + EscHtml(g.Key) + "</div><div class='bt-card'>");
+                    for (int i = 0; i < g.Value.Count; i++)
+                    {
+                        var item = g.Value[i];
+                        if (i > 0) daysHtml.Append("<div class='bt-rule'></div>");
+                        DateTime dt;
+                        if (!DateTime.TryParse(item.DateIso, null, System.Globalization.DateTimeStyles.RoundtripKind, out dt))
+                            dt = DateTime.UtcNow;
+                        string timeStr = dt.ToLocalTime().ToString("h:mm tt");
+                        string addr = Address.DisplayHost(item.Url);
+                        string title = string.IsNullOrWhiteSpace(item.Title) ? addr : item.Title;
+                        string letter = string.IsNullOrEmpty(title) ? "•" : title.Substring(0, 1).ToUpperInvariant();
+                        daysHtml.Append("<div class='hp-row' data-search='" + EscHtml((title + " " + item.Url).ToLowerInvariant()) + "'>" +
+                            "<a class='hp-go' href='" + EscHtml(item.Url) + "' onclick=\"openUrl(event, '" + Esc(item.Url) + "')\">" +
+                            "<span class='hp-letter'>" + EscHtml(letter) + "</span>" +
+                            "<span class='hp-text'><span class='hp-name'>" + EscHtml(title) + "</span><span class='hp-address'>" + EscHtml(addr) + "</span></span>" +
+                            "<span class='hp-time'>" + EscHtml(timeStr) + "</span>" +
+                            "</a>" +
+                            "<button class='hp-remove' onclick=\"removeItem('" + Esc(item.Url) + "', this)\">Remove</button>" +
+                            "</div>");
+                    }
+                    daysHtml.Append("</div></section>");
+                }
+            }
+
+            int total = Store.History.Count;
+            string totalLabel = total == 1 ? "1 page" : total.ToString("N0") + " pages";
+
+            return @"<!DOCTYPE html>
+<html data-root='page' data-look='" + (dark ? "dark" : "light") + @"'>
+<head>
+<meta charset='utf-8'>
+<title>History</title>
+<style>
+  :root {
+    --ground: " + ground + @";
+    --ink: " + ink + @";
+    --muted: " + muted + @";
+    --faint: " + faint + @";
+    --hairline: " + hairline + @";
+    --wash: " + wash + @";
+    --hover: " + hover + @";
+    --unsafe: " + unsafeRed + @";
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    min-height: 100%;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: 'Plus Jakarta Sans', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 1.25;
+    -webkit-font-smoothing: antialiased;
+    scrollbar-width: none;
+  }
+  body::-webkit-scrollbar { display: none; }
+  button, input { font-family: inherit; color: inherit; }
+  .hp { max-width: 600px; margin: 0 auto; padding: 44px 22px 32px; display: flex; flex-direction: column; gap: 14px; }
+  .hp-title { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+  .hp-hunt { font-size: 13px; padding: 8px 12px; border: 0; border-radius: 10px; background: var(--wash); color: var(--ink); outline: none; }
+  .hp-hunt::placeholder { color: var(--muted); }
+  .hp-day { display: flex; flex-direction: column; gap: 8px; }
+  .bt-caption { font-size: 11.5px; font-weight: 500; color: var(--muted); }
+  .bt-card { border: 1px solid var(--hairline); border-radius: 11px; background: var(--ground); overflow: hidden; }
+  .bt-nothing { padding: 14px; color: var(--muted); }
+  .bt-rule { height: 1px; background: var(--hairline); margin-left: 14px; }
+  .hp-row { display: flex; align-items: center; transition: background 120ms; }
+  .hp-row:hover { background: var(--hover); }
+  .hp-go { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 10px 14px; color: inherit; text-decoration: none; }
+  .hp-letter { width: 16px; height: 16px; flex: none; border-radius: 4px; display: grid; place-items: center; background: var(--wash); font-size: 10px; font-weight: 600; color: var(--muted); }
+  .hp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .hp-name, .hp-address { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hp-address, .hp-time { font-size: 11.5px; color: var(--muted); }
+  .hp-remove { visibility: hidden; margin-right: 12px; border: 0; background: transparent; font-size: 11.5px; color: var(--unsafe); cursor: pointer; }
+  .hp-row:hover .hp-remove { visibility: visible; }
+  .hp-foot { display: flex; align-items: center; padding-top: 4px; }
+  .bt-muted { font-size: 12.5px; color: var(--muted); }
+  .bt-spacer { flex: 1; }
+  .bt-pill { font-size: 11.5px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--hairline); background: var(--ground); color: var(--ink); cursor: pointer; }
+  .bt-pill:hover { background: var(--hover); }
+  .bt-line { display: flex; align-items: center; gap: 16px; padding: 11px 14px; }
+  .bt-line-text { flex: 1; min-width: 0; }
+  .bt-line-title { font-size: 13px; }
+  .bt-line-detail { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class='hp'>
+  <h1 class='hp-title'>History</h1>
+  <input id='hpHunt' class='hp-hunt' type='search' placeholder='Search everywhere you have been' autofocus oninput='filterHistory(this.value)' />
+  <div id='clearPanel' style='display:none' class='bt-card'>
+    <div class='bt-line'>
+      <div class='bt-line-text'>
+        <div class='bt-line-title'>History</div>
+        <div class='bt-line-detail'>Every page you have been to, from the field and from here</div>
+      </div>
+      <button class='bt-pill' onclick='clearAllHistory()'>Clear</button>
+    </div>
+  </div>
+  <div id='historyList' style='display:flex;flex-direction:column;gap:14px'>" + daysHtml.ToString() + @"</div>
+  <div class='hp-foot'>
+    <span class='bt-muted' id='totalCount'>" + totalLabel + @"</span>
+    <span class='bt-spacer'></span>
+    <button class='bt-pill' id='clearToggleBtn' onclick='toggleClear()'>Clear…</button>
+  </div>
+</div>
+<script>
+  function post(obj) {
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage(JSON.stringify(obj));
+  }
+  function openUrl(e, url) {
+    e.preventDefault();
+    post({ type: 'historyOpen', url: url, newTab: !!(e.ctrlKey || e.metaKey) });
+  }
+  function removeItem(url, btn) {
+    post({ type: 'historyRemove', url: url });
+    var row = btn.closest('.hp-row');
+    if (row) {
+      var prev = row.previousElementSibling;
+      if (prev && prev.classList.contains('bt-rule')) prev.remove();
+      row.remove();
+    }
+  }
+  function toggleClear() {
+    var cp = document.getElementById('clearPanel');
+    var hl = document.getElementById('historyList');
+    var btn = document.getElementById('clearToggleBtn');
+    var show = cp.style.display === 'none';
+    cp.style.display = show ? 'block' : 'none';
+    hl.style.display = show ? 'none' : 'flex';
+    btn.textContent = show ? 'Back' : 'Clear…';
+  }
+  function clearAllHistory() {
+    post({ type: 'historyClear' });
+  }
+  function filterHistory(q) {
+    q = (q || '').trim().toLowerCase();
+    document.querySelectorAll('.hp-day').forEach(function(sec) {
+      var any = false;
+      sec.querySelectorAll('.hp-row').forEach(function(r) {
+        var hit = !q || (r.getAttribute('data-search') || '').indexOf(q) >= 0;
+        r.style.display = hit ? 'flex' : 'none';
+        if (hit) any = true;
+      });
+      sec.querySelectorAll('.bt-rule').forEach(function(rule) { rule.style.display = q ? 'none' : ''; });
+      sec.style.display = any ? 'flex' : 'none';
+    });
+  }
 </script>
 </body>
 </html>";

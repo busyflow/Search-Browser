@@ -260,7 +260,7 @@ namespace SearchBrowser
         {
             if (string.IsNullOrEmpty(Appearance)) Appearance = "System";
             if (string.IsNullOrEmpty(TabLayout)) TabLayout = "Left";
-            if (SidebarWidth <= 100) SidebarWidth = 224;
+            if (SidebarWidth <= 100) SidebarWidth = 232;
             if (ShieldPausedHosts == null) ShieldPausedHosts = new List<string>();
             if (DuskDisabledHosts == null) DuskDisabledHosts = new List<string>();
             if (DuskForcedHosts == null) DuskForcedHosts = new List<string>();

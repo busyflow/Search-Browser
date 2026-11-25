@@ -89,8 +89,8 @@ namespace SearchBrowser
             if (reqHost == "static.doubleclick.net" && reqPathAndQuery.StartsWith("/instream/ad_status.js", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            // YouTube specific ad endpoints
-            if (reqHost.EndsWith("youtube.com", StringComparison.OrdinalIgnoreCase))
+            // YouTube specific ad endpoints (exact host boundary match from oriel lists.ts:86)
+            if (reqHost == "youtube.com" || reqHost.EndsWith(".youtube.com", StringComparison.OrdinalIgnoreCase))
             {
                 foreach (var ytPath in YouTubeBlockedPaths)
                 {
@@ -108,8 +108,10 @@ namespace SearchBrowser
                 }
             }
 
-            if ((pageHost.EndsWith("youtube.com") || pageHost.EndsWith("youtube-nocookie.com")) &&
-                (reqHost == "imasdk.googleapis.com" || (reqHost.EndsWith("google.com") && reqPathAndQuery.StartsWith("/pagead/"))))
+            bool pageIsYt = pageHost == "youtube.com" || pageHost.EndsWith(".youtube.com", StringComparison.OrdinalIgnoreCase) ||
+                            pageHost == "youtube-nocookie.com" || pageHost.EndsWith(".youtube-nocookie.com", StringComparison.OrdinalIgnoreCase);
+            if (pageIsYt &&
+                (reqHost == "imasdk.googleapis.com" || ((reqHost == "google.com" || reqHost.EndsWith(".google.com", StringComparison.OrdinalIgnoreCase)) && reqPathAndQuery.StartsWith("/pagead/"))))
             {
                 BlockedCountTotal++;
                 return true;

@@ -21,7 +21,7 @@ namespace SearchBrowser
             "x-amz-signature", "x-goog-signature", "signature", "sig"
         };
 
-        public static string Clean(string rawUrl)
+        public static string Clean(string rawUrl, bool stripUtm = true)
         {
             if (string.IsNullOrWhiteSpace(rawUrl)) return rawUrl;
             Uri uri;
@@ -49,7 +49,7 @@ namespace SearchBrowser
             {
                 string key = part.Split('=')[0];
                 string decodedKey = Uri.UnescapeDataString(key.Replace("+", " ")).ToLowerInvariant();
-                if (!IsTrackingParam(decodedKey, host))
+                if (!IsTrackingParam(decodedKey, host, stripUtm))
                     kept.Add(part);
             }
 
@@ -62,11 +62,11 @@ namespace SearchBrowser
             return builder.Uri.AbsoluteUri;
         }
 
-        private static bool IsTrackingParam(string name, string host)
+        private static bool IsTrackingParam(string name, string host, bool stripUtm)
         {
-            if (name.StartsWith("utm_", StringComparison.OrdinalIgnoreCase) || GlobalTrackingParams.Contains(name))
+            if ((stripUtm && name.StartsWith("utm_", StringComparison.OrdinalIgnoreCase)) || GlobalTrackingParams.Contains(name))
                 return true;
-            if (name == "si" && (host.EndsWith("youtube.com") || host.EndsWith("youtu.be") || host.EndsWith("spotify.com")))
+            if (name == "si" && (host == "youtube.com" || host.EndsWith(".youtube.com") || host == "youtu.be" || host == "spotify.com" || host.EndsWith(".spotify.com")))
                 return true;
             return false;
         }
