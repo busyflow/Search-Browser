@@ -90,6 +90,7 @@ namespace SearchBrowser
         private Border _leftPaneHost;
         private Border _rightPaneHost;
         private GridSplitter _splitDivider;
+        private System.Windows.Controls.Primitives.Popup _splitClosePopup;
 
         // Sidebar / Tab bar elements
         private WrapPanel _pinsPanel;
@@ -235,8 +236,8 @@ namespace SearchBrowser
             StateChanged += OnWindowStateChanged;
             PreviewKeyDown += OnWindowPreviewKeyDown;
             PreviewKeyUp += OnWindowPreviewKeyUp;
-            LocationChanged += (s, e) => RepositionFindPopup();
-            SizeChanged += (s, e) => RepositionFindPopup();
+            LocationChanged += (s, e) => { RepositionFindPopup(); RepositionSplitClosePopup(); };
+            SizeChanged += (s, e) => { RepositionFindPopup(); RepositionSplitClosePopup(); };
             DownloadsUpdated += () => Dispatcher.InvokeAsync(() => UpdateFooterButtons());
 
             _sleepTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
@@ -731,6 +732,33 @@ namespace SearchBrowser
             };
             Grid.SetColumn(_rightPaneHost, 2);
             _stageGrid.Children.Add(_rightPaneHost);
+
+            var splitCloseBtn = new Border
+            {
+                Width = 26,
+                Height = 26,
+                CornerRadius = new CornerRadius(13),
+                Background = Palette.CardSurface,
+                BorderBrush = Palette.CardEdge,
+                BorderThickness = new Thickness(1),
+                Cursor = Cursors.Hand,
+                ToolTip = "Close Side Panel",
+                Child = VectorIcons.Draw(VectorIcons.CloseSmallPath, Palette.Ink, 10, 1.5),
+                Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 2, Opacity = 0.25 }
+            };
+            splitCloseBtn.MouseEnter += (s, e) => splitCloseBtn.Background = Palette.Wash;
+            splitCloseBtn.MouseLeave += (s, e) => splitCloseBtn.Background = Palette.CardSurface;
+            splitCloseBtn.MouseLeftButtonDown += (s, e) => { e.Handled = true; };
+            splitCloseBtn.MouseLeftButtonUp += (s, e) => { e.Handled = true; ExitSplitView(_splitLeftTab); };
+            _splitClosePopup = new System.Windows.Controls.Primitives.Popup
+            {
+                Child = new Border { Padding = new Thickness(4), Child = splitCloseBtn },
+                PlacementTarget = _rightPaneHost,
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Relative,
+                AllowsTransparency = true,
+                StaysOpen = true
+            };
+            _rightPaneHost.SizeChanged += (s, e) => RepositionSplitClosePopup();
 
             pageInnerDock.Children.Add(_stageGrid);
             _pageCardBorder.Child = pageInnerDock;
@@ -2899,6 +2927,7 @@ namespace SearchBrowser
             _rightPaneHost.Child = null;
             _rightPaneHost.Visibility = Visibility.Collapsed;
             _splitDivider.Visibility = Visibility.Collapsed;
+            if (_splitClosePopup != null) _splitClosePopup.IsOpen = false;
             _stageGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
             _stageGrid.ColumnDefinitions[2].Width = new GridLength(0, GridUnitType.Pixel);
 
@@ -2914,18 +2943,28 @@ namespace SearchBrowser
             RefreshTabRows();
         }
 
-        private void UpdateSplitFocusBorders()
+        private void RepositionSplitClosePopup()
         {
-            if (!_isSplitView)
+            if (_splitClosePopup == null) return;
+            if (!_isSplitView || _rightPaneHost == null || _rightPaneHost.Visibility != Visibility.Visible)
             {
-                _leftPaneHost.BorderThickness = new Thickness(0);
-                _rightPaneHost.BorderThickness = new Thickness(0);
+                _splitClosePopup.IsOpen = false;
                 return;
             }
-            _leftPaneHost.BorderBrush = _activeTab == _splitLeftTab ? Palette.Ink : Palette.Hairline;
-            _leftPaneHost.BorderThickness = new Thickness(_activeTab == _splitLeftTab ? 1.5 : 0);
-            _rightPaneHost.BorderBrush = _activeTab == _splitRightTab ? Palette.Ink : Palette.Hairline;
-            _rightPaneHost.BorderThickness = new Thickness(_activeTab == _splitRightTab ? 1.5 : 0);
+            double w = _rightPaneHost.ActualWidth;
+            if (w > 40)
+            {
+                _splitClosePopup.HorizontalOffset = w - 42;
+                _splitClosePopup.VerticalOffset = 10;
+                _splitClosePopup.IsOpen = true;
+            }
+        }
+
+        private void UpdateSplitFocusBorders()
+        {
+            _leftPaneHost.BorderThickness = new Thickness(0);
+            _rightPaneHost.BorderThickness = new Thickness(0);
+            RepositionSplitClosePopup();
         }
 
         private async Task OpenTabInSplitViewAsync(BrowserTab other, bool putOnLeft)
