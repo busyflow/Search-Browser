@@ -44,6 +44,7 @@ namespace SearchBrowser
         public event Action<BrowserTab, string> WebMessageReceived;
         public event Action<BrowserTab, string> NewTabRequested;
         public event Action<BrowserTab, string> PeekRequested;
+        public event Action<BrowserTab, bool> FullScreenRequested;
 
         public BrowserTab(string url = "about:blank", string title = "New Tab", bool pinned = false, bool isPrivate = false, string spaceId = null, string groupId = null)
         {
@@ -420,6 +421,16 @@ namespace SearchBrowser
                 }
                 MainWindow.RecordDownload(e.DownloadOperation);
             };
+
+            try
+            {
+                core.ContainsFullScreenElementChanged += (s, e) =>
+                {
+                    var handler = FullScreenRequested;
+                    if (handler != null) handler(this, core.ContainsFullScreenElement);
+                };
+            }
+            catch { }
 
             try
             {

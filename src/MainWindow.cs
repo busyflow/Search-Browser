@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -1471,6 +1471,14 @@ namespace SearchBrowser
             if (nCode >= 0 && _mainHwnd != IntPtr.Zero)
             {
                 int msg = wParam.ToInt32();
+                if ((msg == 0x0101 || msg == 0x0105) && _switcherPopup != null && _switcherPopup.IsOpen)
+                {
+                    int vkUp = System.Runtime.InteropServices.Marshal.ReadInt32(lParam);
+                    if (vkUp == 0x11 || vkUp == 0xA2 || vkUp == 0xA3) // Ctrl released
+                    {
+                        Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => { var _ = CommitMruSwitcherAsync(); }));
+                    }
+                }
                 if ((msg == 0x0100 || msg == 0x0104) && GetForegroundWindow() == _mainHwnd)
                 {
                     int vk = System.Runtime.InteropServices.Marshal.ReadInt32(lParam);
@@ -1701,13 +1709,33 @@ namespace SearchBrowser
 
         private void ToggleFullScreen()
         {
-            if (!_isFullScreen)
+            SetFullScreen(!_isFullScreen, false);
+        }
+
+        private void SetFullScreen(bool enter, bool fromWebElement)
+        {
+            if (enter == _isFullScreen) return;
+            if (enter)
             {
                 _preFullScreenState = WindowState;
                 _isFullScreen = true;
                 WindowState = WindowState.Maximized;
                 _topTabBarBorder.Visibility = Visibility.Collapsed;
                 _rootGrid.RowDefinitions[0].Height = new GridLength(0);
+                ApplyLayoutPreferences();
+                if (fromWebElement)
+                {
+                    if (_sidebarBorder != null) _sidebarBorder.Visibility = Visibility.Collapsed;
+                    if (_sidebarHoverHotzone != null) _sidebarHoverHotzone.Visibility = Visibility.Collapsed;
+                    if (_pageCardBorder != null)
+                    {
+                        _pageCardBorder.CornerRadius = new CornerRadius(0);
+                        _pageCardBorder.Margin = new Thickness(0);
+                        _pageCardBorder.BorderThickness = new Thickness(0);
+                    }
+                    ApplyRoundedCornersToHost(_leftPaneHost);
+                    ApplyRoundedCornersToHost(_rightPaneHost);
+                }
             }
             else
             {
@@ -1715,8 +1743,8 @@ namespace SearchBrowser
                 _topTabBarBorder.Visibility = Visibility.Visible;
                 _rootGrid.RowDefinitions[0].Height = new GridLength(52);
                 WindowState = _preFullScreenState;
+                ApplyLayoutPreferences();
             }
-            ApplyLayoutPreferences();
         }
 
         private void ToggleSidebarFold()
@@ -2052,6 +2080,24 @@ namespace SearchBrowser
             RefreshTabRows();
         }
 
+        private static void SafeSetClipboardText(string text)
+        {
+            if (text == null) text = "";
+            for (int i = 0; i < 3; i++)
+            {
+                try
+                {
+                    // copy: false avoids the ~5s OLE clipboard flush stall on Windows 11
+                    Clipboard.SetDataObject(text, false);
+                    return;
+                }
+                catch
+                {
+                    if (i < 2) System.Threading.Thread.Sleep(10);
+                }
+            }
+        }
+
         private void OnWindowClosing(object sender, System.ComponentModel.CancelEventArgs e)
         {
             if (Store.Prefs.ConfirmBeforeQuitting && _allTabs.Count > 0)
@@ -2137,6 +2183,10 @@ namespace SearchBrowser
             tab.WebMessageReceived += (t, json) =>
             {
                 Dispatcher.InvokeAsync(async () => await HandleTabWebMessageAsync(t, json));
+            };
+            tab.FullScreenRequested += (t, isFs) =>
+            {
+                Dispatcher.InvokeAsync(() => SetFullScreen(isFs, true));
             };
         }
 
@@ -2400,7 +2450,7 @@ namespace SearchBrowser
                 if (alt && shift && key == "c")
                 {
                     if (_activeTab != null && !string.IsNullOrEmpty(_activeTab.Url))
-                        Clipboard.SetText(CleanLink.Clean(_activeTab.Url, true));
+                        SafeSetClipboardText(CleanLink.Clean(_activeTab.Url, true));
                     return;
                 }
                 if (alt && shift && key == "d")
@@ -2819,7 +2869,7 @@ namespace SearchBrowser
                             {
                                 if (Store.Prefs.WindowsHelloForVault && !WindowsHelloVerifier.VerifyUser(this)) return;
                                 string dec = Store.DecryptPassword(login);
-                                if (!string.IsNullOrEmpty(dec)) Clipboard.SetText(dec);
+                                if (!string.IsNullOrEmpty(dec)) SafeSetClipboardText(dec);
                             }
                         }
                     }
@@ -5221,16 +5271,16 @@ namespace SearchBrowser
             }, isWebUrl && !tab.IsSleeping);
             AddPopupMenuItem(popup, stack, "Copy Address", "", () =>
             {
-                Clipboard.SetText(tab.Url ?? "");
+                SafeSetClipboardText(tab.Url ?? "");
             });
             AddPopupMenuItem(popup, stack, "Copy as Markdown Link", "", () =>
             {
-                Clipboard.SetText("[" + tab.DisplayTitle + "](" + (tab.Url ?? "") + ")");
+                SafeSetClipboardText("[" + tab.DisplayTitle + "](" + (tab.Url ?? "") + ")");
             });
             string cleanUrl = CleanLink.Clean(tab.Url, true);
             AddPopupMenuItem(popup, stack, "Copy Clean Link", "", () =>
             {
-                Clipboard.SetText(cleanUrl);
+                SafeSetClipboardText(cleanUrl);
             }, isWebUrl && !string.Equals(cleanUrl, tab.Url, StringComparison.Ordinal));
             AddPopupMenuItem(popup, stack, "Open in Side Panel", "", async () =>
             {
@@ -6033,7 +6083,7 @@ namespace SearchBrowser
             if (alt && shift && !ctrl && k == Key.C)
             {
                 if (_activeTab != null && !string.IsNullOrEmpty(_activeTab.Url))
-                    Clipboard.SetText(CleanLink.Clean(_activeTab.Url, true));
+                    SafeSetClipboardText(CleanLink.Clean(_activeTab.Url, true));
                 e.Handled = true;
                 return;
             }
@@ -6341,7 +6391,7 @@ namespace SearchBrowser
                     case "c":
                         if (_activeTab != null && !string.IsNullOrEmpty(_activeTab.Url))
                         {
-                            Clipboard.SetText(CleanLink.Clean(_activeTab.Url, true));
+                            SafeSetClipboardText(CleanLink.Clean(_activeTab.Url, true));
                         }
                         return true;
                     case "v":
@@ -6930,7 +6980,7 @@ namespace SearchBrowser
             quickPanel.Children.Add(CreatePillActionButton("📺 Float Video PiP (Ctrl+Shift+P)", async () => { SetDrawerVisible(false); await TogglePictureInPictureAsync(); }));
             quickPanel.Children.Add(CreatePillActionButton("🔗 Copy Clean Link (Ctrl+Shift+C)", () =>
             {
-                if (_activeTab != null) Clipboard.SetText(CleanLink.Clean(_activeTab.Url));
+                if (_activeTab != null) SafeSetClipboardText(CleanLink.Clean(_activeTab.Url));
                 SetDrawerVisible(false);
             }));
             quickPanel.Children.Add(CreatePillActionButton("◫ Split View (Alt+Ctrl+N)", () => { SetDrawerVisible(false); ToggleSplitView(); }));
@@ -7373,7 +7423,7 @@ namespace SearchBrowser
                     string dec = Store.DecryptPassword(cap);
                     if (!string.IsNullOrEmpty(dec))
                     {
-                        Clipboard.SetText(dec);
+                        SafeSetClipboardText(dec);
                         await FillSavedLoginAsync(cap);
                         SetDrawerVisible(false);
                     }
