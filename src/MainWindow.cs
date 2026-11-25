@@ -2756,15 +2756,35 @@ namespace SearchBrowser
             SaveCurrentSession();
         }
 
-        private async void CloseTab(BrowserTab tab, bool forceClosePin = false)
+        private async void CloseTab(BrowserTab tab, bool forceClosePin = false, bool deletePin = false)
         {
             if (tab == null) return;
 
             // Oriel PinsKeepSite: Ctrl+W on a wandered pinned tab returns it home instead of closing
-            if (!forceClosePin && tab.Pinned && Store.Prefs.PinsKeepSite && !string.IsNullOrEmpty(tab.HomeUrl) &&
+            if (!forceClosePin && !deletePin && tab.Pinned && Store.Prefs.PinsKeepSite && !string.IsNullOrEmpty(tab.HomeUrl) &&
                 !string.Equals(tab.Url, tab.HomeUrl, StringComparison.OrdinalIgnoreCase))
             {
                 tab.Navigate(tab.HomeUrl);
+                return;
+            }
+
+            // Closing a pinned tab (without Delete) closes its WebView and darkens the pin, keeping it in the pin bar!
+            if (tab.Pinned && !deletePin)
+            {
+                if (_isSplitView && (tab == _splitLeftTab || tab == _splitRightTab))
+                    ExitSplitView(tab == _splitLeftTab ? _splitRightTab : _splitLeftTab);
+                tab.KeepAwake = false;
+                tab.PutToSleep();
+                if (_activeTab == tab)
+                {
+                    var spaceTabsRem = GetTabsForActiveSpace();
+                    var next = spaceTabsRem.FirstOrDefault(t => t != tab && !t.IsSleeping)
+                        ?? spaceTabsRem.FirstOrDefault(t => t != tab && !t.Pinned);
+                    if (next != null) await SelectTabAsync(next);
+                    else CreateAndSelectTab("about:blank", false);
+                }
+                RefreshTabRows();
+                SaveCurrentSession();
                 return;
             }
 
@@ -3299,7 +3319,7 @@ namespace SearchBrowser
             RefreshTabRows();
         }
 
-        private UIElement CreateFaviconOrGlyph(BrowserTab tab, double size, bool boxedLetter = false)
+        private UIElement CreateFaviconOrGlyph(BrowserTab tab, double size, bool boxedLetter = false, Brush letterBrush = null)
         {
             if (tab.IsPrivate)
             {
@@ -3353,7 +3373,7 @@ namespace SearchBrowser
                 Text = tab.PinGlyph,
                 FontSize = size * 0.82,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = Palette.FrameMuted,
+                Foreground = letterBrush ?? Palette.FrameMuted,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -3403,6 +3423,9 @@ namespace SearchBrowser
             foreach (var pin in pinned)
             {
                 bool isLive = pin == _activeTab || (_isSplitView && (pin == _splitLeftTab || pin == _splitRightTab));
+                bool isClosedPin = pin.IsSleeping && !isLive;
+                Brush pinBg = isLive ? Palette.FramePinLive : (isClosedPin ? Palette.FrameTile : Palette.FrameHover);
+                Brush pinFg = isLive ? Palette.Ink : (isClosedPin ? Palette.FrameFaint : Palette.FrameMuted);
                 var sq = new Border
                 {
                     Tag = pin,
@@ -3410,12 +3433,12 @@ namespace SearchBrowser
                     Height = isIconsOnly ? 32 : 34,
                     Margin = new Thickness(0, 0, 4, 4),
                     CornerRadius = new CornerRadius(9),
-                    Background = isLive ? Palette.FramePinLive : Palette.FrameTile,
+                    Background = pinBg,
                     Cursor = Cursors.Hand,
                     ToolTip = pin.DisplayTitle + "\n" + pin.Url
                 };
                 var pinGrid = new Grid();
-                pinGrid.Children.Add(CreateFaviconOrGlyph(pin, 16, false));
+                pinGrid.Children.Add(CreateFaviconOrGlyph(pin, 16, false, pinFg));
                 if (Store.Prefs.ShowCountsOnPins)
                 {
                     string badge = ExtractUnreadBadge(pin.Title);
@@ -3437,7 +3460,7 @@ namespace SearchBrowser
 
                 var captured = pin;
                 sq.MouseEnter += (s, e) => { if (captured != _activeTab) sq.Background = Palette.FrameHover; };
-                sq.MouseLeave += (s, e) => { if (captured != _activeTab) sq.Background = Palette.FrameTile; };
+                sq.MouseLeave += (s, e) => { if (captured != _activeTab) sq.Background = pinBg; };
                 sq.MouseLeftButtonDown += (s, e) =>
                 {
                     if (e.ClickCount == 2 && !string.IsNullOrEmpty(captured.HomeUrl))
@@ -4360,7 +4383,7 @@ namespace SearchBrowser
                         RefreshTabRows();
                         SaveCurrentSession();
                     });
-                    AddPopupMenuItem(popup, stack, "Delete", "", () => CloseTab(tab, true));
+                    AddPopupMenuItem(popup, stack, "Delete", "", () => CloseTab(tab, false, true));
                 }
                 else
                 {
