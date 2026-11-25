@@ -330,6 +330,11 @@ namespace SearchBrowser
                 BenchServerEnabled = false;
                 PrefsMigrationVersion = 3;
             }
+            if (PrefsMigrationVersion < 4)
+            {
+                TabsShowMode = "Icons";
+                PrefsMigrationVersion = 4;
+            }
             if (string.IsNullOrEmpty(WindowButtonsStyle)) WindowButtonsStyle = "Inline";
             if (string.IsNullOrEmpty(NewTabPosition)) NewTabPosition = "After current";
             if (string.IsNullOrEmpty(SleepLevel)) SleepLevel = "Normal";

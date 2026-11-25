@@ -3068,7 +3068,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0017";
+            const string currentVersion = "0.0018";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -3933,32 +3933,44 @@ namespace SearchBrowser
                 return VectorIcons.Draw(VectorIcons.EyeOffPath, Palette.FrameMuted, size * 0.86, 1.45);
             }
             bool preferLetters = string.Equals(Store.Prefs.TabsShowMode, "Letters", StringComparison.OrdinalIgnoreCase);
-            if (!preferLetters && !string.IsNullOrEmpty(tab.FaviconUrl) && tab.FaviconUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            if (!preferLetters)
             {
-                try
+                var brandIcon = VectorIcons.TryDrawBrandIcon(tab.Url, size);
+                if (brandIcon != null) return brandIcon;
+
+                string icoUrl = tab.FaviconUrl;
+                string host = Address.DisplayHost(tab.Url);
+                if ((string.IsNullOrEmpty(icoUrl) || icoUrl.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)) && !string.IsNullOrEmpty(host) && tab.Url != null && tab.Url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
                 {
-                    BitmapImage bmp;
-                    if (!_faviconCache.TryGetValue(tab.FaviconUrl, out bmp))
-                    {
-                        if (_faviconCache.Count > 200) _faviconCache.Clear();
-                        bmp = new BitmapImage();
-                        bmp.BeginInit();
-                        bmp.UriSource = new Uri(tab.FaviconUrl);
-                        bmp.DecodePixelWidth = 32;
-                        bmp.CacheOption = BitmapCacheOption.OnLoad;
-                        bmp.EndInit();
-                        _faviconCache[tab.FaviconUrl] = bmp;
-                    }
-                    return new Image
-                    {
-                        Source = bmp,
-                        Width = size,
-                        Height = size,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Center
-                    };
+                    icoUrl = "https://www.google.com/s2/favicons?sz=64&domain=" + Uri.EscapeDataString(host);
                 }
-                catch { }
+                if (!string.IsNullOrEmpty(icoUrl) && icoUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        BitmapImage bmp;
+                        if (!_faviconCache.TryGetValue(icoUrl, out bmp))
+                        {
+                            if (_faviconCache.Count > 200) _faviconCache.Clear();
+                            bmp = new BitmapImage();
+                            bmp.BeginInit();
+                            bmp.UriSource = new Uri(icoUrl);
+                            bmp.DecodePixelWidth = 32;
+                            bmp.CacheOption = BitmapCacheOption.OnLoad;
+                            bmp.EndInit();
+                            _faviconCache[icoUrl] = bmp;
+                        }
+                        return new Image
+                        {
+                            Source = bmp,
+                            Width = size,
+                            Height = size,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            HorizontalAlignment = HorizontalAlignment.Center
+                        };
+                    }
+                    catch { }
+                }
             }
             if (boxedLetter)
             {

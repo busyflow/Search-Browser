@@ -126,5 +126,85 @@ namespace SearchBrowser
                 Child = path
             };
         }
+
+        // Crisp native vector brand icons for popular sites (zero network delay, works offline & in dark/light mode)
+        public static UIElement TryDrawBrandIcon(string url, double size)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return null;
+            string host = Address.DisplayHost(url);
+            if (string.IsNullOrEmpty(host)) return null;
+            host = host.ToLowerInvariant();
+
+            // 1. YouTube Music
+            if (host == "music.youtube.com")
+            {
+                var c = new Canvas { Width = 16, Height = 16 };
+                c.Children.Add(new Ellipse { Width = 14, Height = 14, Fill = new SolidColorBrush(Color.FromRgb(0xFF, 0x00, 0x00)), Margin = new Thickness(1) });
+                c.Children.Add(new Ellipse { Width = 8.4, Height = 8.4, Stroke = Brushes.White, StrokeThickness = 1.0, Margin = new Thickness(3.8) });
+                c.Children.Add(new Path { Data = Geometry.Parse("M 6.8,5.8 L 10.6,8 L 6.8,10.2 Z"), Fill = Brushes.White });
+                return new Viewbox { Width = size, Height = size, Child = c };
+            }
+            // 2. YouTube
+            if (host == "youtube.com" || host.EndsWith(".youtube.com") || host == "youtu.be")
+            {
+                var c = new Canvas { Width = 16, Height = 16 };
+                c.Children.Add(new Path { Data = Geometry.Parse("M 1.4,5.2 C 1.4,3.8 2.4,3.0 3.8,3.0 L 12.2,3.0 C 13.6,3.0 14.6,3.8 14.6,5.2 L 14.6,10.8 C 14.6,12.2 13.6,13.0 12.2,13.0 L 3.8,13.0 C 2.4,13.0 1.4,12.2 1.4,10.8 Z"), Fill = new SolidColorBrush(Color.FromRgb(0xFF, 0x00, 0x00)) });
+                c.Children.Add(new Path { Data = Geometry.Parse("M 6.5,5.6 L 10.8,8.0 L 6.5,10.4 Z"), Fill = Brushes.White });
+                return new Viewbox { Width = size, Height = size, Child = c };
+            }
+            // 3. Spotify
+            if (host == "spotify.com" || host.EndsWith(".spotify.com"))
+            {
+                var c = new Canvas { Width = 16, Height = 16 };
+                c.Children.Add(new Ellipse { Width = 14, Height = 14, Fill = new SolidColorBrush(Color.FromRgb(0x1D, 0xB9, 0x54)), Margin = new Thickness(1) });
+                c.Children.Add(new Path { Data = Geometry.Parse("M 4.4,6.4 Q 8.2,5.3 11.8,6.8 M 4.9,8.7 Q 8.1,7.8 11.1,9.0 M 5.5,10.9 Q 8.0,10.2 10.4,11.2"), Stroke = new SolidColorBrush(Color.FromRgb(0x12, 0x12, 0x12)), StrokeThickness = 1.25, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
+                return new Viewbox { Width = size, Height = size, Child = c };
+            }
+            // 4. Gmail
+            if (host == "mail.google.com")
+            {
+                var c = new Canvas { Width = 16, Height = 16 };
+                c.Children.Add(new Path { Data = Geometry.Parse("M 2.2,4.2 L 13.8,4.2 L 13.8,12.2 L 2.2,12.2 Z"), Fill = Brushes.White });
+                c.Children.Add(new Path { Data = Geometry.Parse("M 2.2,12.2 L 2.2,4.6 L 8,8.8 L 13.8,4.6 L 13.8,12.2"), Stroke = new SolidColorBrush(Color.FromRgb(0xEA, 0x43, 0x35)), StrokeThickness = 2.0, StrokeLineJoin = PenLineJoin.Round, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
+                return new Viewbox { Width = size, Height = size, Child = c };
+            }
+            // 5. Google Calendar
+            if (host == "calendar.google.com")
+            {
+                var c = new Canvas { Width = 16, Height = 16 };
+                c.Children.Add(new Path { Data = Geometry.Parse("M 2.5,3.2 C 2.5,2.5 3.1,2 3.8,2 L 12.2,2 C 12.9,2 13.5,2.5 13.5,3.2 L 13.5,12.8 C 13.5,13.5 12.9,14 12.2,14 L 3.8,14 C 3.1,14 2.5,13.5 2.5,12.8 Z"), Fill = new SolidColorBrush(Color.FromRgb(0x42, 0x85, 0xF4)) });
+                c.Children.Add(new Path { Data = Geometry.Parse("M 4.5,5.5 L 11.5,5.5 L 11.5,11.8 L 4.5,11.8 Z"), Fill = Brushes.White });
+                var tb = new TextBlock { Text = "31", FontSize = 5.4, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(Color.FromRgb(0x42, 0x85, 0xF4)) };
+                Canvas.SetLeft(tb, 5.2); Canvas.SetTop(tb, 5.3);
+                c.Children.Add(tb);
+                return new Viewbox { Width = size, Height = size, Child = c };
+            }
+            // 6. Google Docs
+            if (host == "docs.google.com")
+            {
+                var c = new Canvas { Width = 16, Height = 16 };
+                c.Children.Add(new Path { Data = Geometry.Parse("M 3.4,1.8 L 9.8,1.8 L 12.8,4.8 L 12.8,14.2 L 3.4,14.2 Z"), Fill = new SolidColorBrush(Color.FromRgb(0x42, 0x85, 0xF4)) });
+                c.Children.Add(new Path { Data = Geometry.Parse("M 5.4,7.4 L 10.6,7.4 M 5.4,9.6 L 10.6,9.6 M 5.4,11.8 L 8.8,11.8"), Stroke = Brushes.White, StrokeThickness = 1.2, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round });
+                return new Viewbox { Width = size, Height = size, Child = c };
+            }
+            // 7. GitHub
+            if (host == "github.com" || host.EndsWith(".github.com"))
+            {
+                var c = new Canvas { Width = 16, Height = 16 };
+                c.Children.Add(new Path { Data = Geometry.Parse("M 8,1.5 C 4.4,1.5 1.5,4.4 1.5,8 C 1.5,10.9 3.4,13.3 6,14.2 C 6.3,14.2 6.4,14 6.4,13.8 L 6.4,12.5 C 4.6,12.9 4.2,11.7 4.2,11.7 C 3.9,11 3.5,10.8 3.5,10.8 C 2.9,10.4 3.5,10.4 3.5,10.4 C 4.2,10.4 4.5,11.1 4.5,11.1 C 5.1,12.1 6.1,11.8 6.5,11.6 C 6.6,11.2 6.7,10.9 6.9,10.7 C 5.4,10.5 3.9,10 3.9,7.5 C 3.9,6.8 4.2,6.2 4.6,5.8 C 4.5,5.6 4.3,4.9 4.7,4 C 4.7,4 5.2,3.8 6.4,4.6 C 6.9,4.5 7.5,4.4 8,4.4 C 8.5,4.4 9.1,4.5 9.6,4.6 C 10.8,3.8 11.3,4 11.3,4 C 11.7,4.9 11.5,5.6 11.4,5.8 C 11.8,6.2 12.1,6.8 12.1,7.5 C 12.1,10 10.6,10.5 9.1,10.7 C 9.3,10.9 9.5,11.3 9.5,11.9 L 9.5,13.8 C 9.5,14 9.6,14.2 10,14.2 C 12.6,13.3 14.5,10.9 14.5,8 C 14.5,4.4 11.6,1.5 8,1.5 Z"), Fill = Palette.Ink });
+                return new Viewbox { Width = size, Height = size, Child = c };
+            }
+            // 8. Google
+            if (host == "google.com" || host.EndsWith(".google.com"))
+            {
+                var c = new Canvas { Width = 16, Height = 16 };
+                c.Children.Add(new Path { Data = Geometry.Parse("M 13.6,8.2 C 13.6,7.8 13.6,7.4 13.5,7.0 L 8,7.0 L 8,9.3 L 11.2,9.3 C 11.0,10.1 10.5,10.8 9.8,11.2 L 9.8,12.8 L 11.9,12.8 C 13.0,11.7 13.6,10.1 13.6,8.2 Z"), Fill = new SolidColorBrush(Color.FromRgb(0x42, 0x85, 0xF4)) });
+                c.Children.Add(new Path { Data = Geometry.Parse("M 8,14 C 9.6,14 10.9,13.5 11.9,12.8 L 9.8,11.2 C 9.3,11.5 8.7,11.7 8,11.7 C 6.6,11.7 5.4,10.8 5.0,9.5 L 2.9,9.5 L 2.9,11.1 C 3.9,13.0 5.8,14 8,14 Z"), Fill = new SolidColorBrush(Color.FromRgb(0x34, 0xA8, 0x53)) });
+                c.Children.Add(new Path { Data = Geometry.Parse("M 5.0,9.5 C 4.9,9.1 4.8,8.6 4.8,8 C 4.8,7.4 4.9,6.9 5.0,6.5 L 5.0,4.9 L 2.9,4.9 C 2.3,5.9 2.0,6.9 2.0,8 C 2.0,9.1 2.3,10.1 2.9,11.1 Z"), Fill = new SolidColorBrush(Color.FromRgb(0xFB, 0xBC, 0x05)) });
+                c.Children.Add(new Path { Data = Geometry.Parse("M 8,4.3 C 8.9,4.3 9.7,4.6 10.3,5.2 L 12.0,3.5 C 10.9,2.5 9.6,2.0 8,2.0 C 5.8,2.0 3.9,3.0 2.9,4.9 L 5.0,6.5 C 5.4,5.2 6.6,4.3 8,4.3 Z"), Fill = new SolidColorBrush(Color.FromRgb(0xEA, 0x43, 0x35)) });
+                return new Viewbox { Width = size, Height = size, Child = c };
+            }
+            return null;
+        }
     }
 }
