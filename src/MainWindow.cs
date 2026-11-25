@@ -82,6 +82,7 @@ namespace SearchBrowser
 
         // Sidebar / Tab bar elements
         private WrapPanel _pinsPanel;
+        private Border _pinsDivider;
         private Grid _tabsContainerGrid;
         private Border _glidingTabPill;
         private TranslateTransform _glidingPillTransform;
@@ -314,10 +315,38 @@ namespace SearchBrowser
             _pinsPanel = new WrapPanel
             {
                 Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 0, 0, 4)
+                Margin = new Thickness(0, 0, 0, 4),
+                MinHeight = 6,
+                Background = Brushes.Transparent,
+                AllowDrop = true
+            };
+            _pinsPanel.DragOver += (s, e) =>
+            {
+                if (_draggedTab != null) { e.Effects = DragDropEffects.Move; e.Handled = true; }
+            };
+            _pinsPanel.Drop += (s, e) =>
+            {
+                if (_draggedTab != null)
+                {
+                    _draggedTab.Pinned = true;
+                    _draggedTab = null;
+                    RefreshTabRows();
+                    SaveCurrentSession();
+                    e.Handled = true;
+                }
             };
             DockPanel.SetDock(_pinsPanel, Dock.Top);
             sidebarDock.Children.Add(_pinsPanel);
+
+            _pinsDivider = new Border
+            {
+                Height = 1,
+                Background = Palette.Hairline,
+                Margin = new Thickness(4, 4, 4, 8),
+                Visibility = Visibility.Collapsed
+            };
+            DockPanel.SetDock(_pinsDivider, Dock.Top);
+            sidebarDock.Children.Add(_pinsDivider);
 
             // Bottom-left Space switcher button (Oriel bottom-left home/space icon)
             var footerRow = new DockPanel { Margin = new Thickness(0, 4, 0, 2) };
@@ -1798,7 +1827,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0005";
+            const string currentVersion = "0.0006";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -2279,6 +2308,11 @@ namespace SearchBrowser
             var unpinned = spaceTabs.Where(t => !t.Pinned).ToList();
 
             // 1. Pinned squares in sidebar (with real Favicon or Letter monogram)
+            if (_pinsDivider != null)
+            {
+                _pinsDivider.Background = Palette.Hairline;
+                _pinsDivider.Visibility = pinned.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
             foreach (var pin in pinned)
             {
                 bool isLive = pin == _activeTab || (_isSplitView && (pin == _splitLeftTab || pin == _splitRightTab));
@@ -4585,10 +4619,10 @@ namespace SearchBrowser
                 Height = 26,
                 CornerRadius = new CornerRadius(7),
                 Background = Brushes.Transparent,
-                Margin = new Thickness(1, 0, 1, 0),
+                Margin = new Thickness(0, 0, 4, 0),
                 Cursor = Cursors.Hand,
                 ToolTip = tooltip,
-                Child = VectorIcons.Draw(pathData, Palette.Muted, 13, 1.45)
+                Child = VectorIcons.Draw(pathData, Palette.Muted, 11, 1.4)
             };
             WindowChrome.SetIsHitTestVisibleInChrome(b, true);
             b.MouseEnter += (s, e) => b.Background = Palette.Hover;

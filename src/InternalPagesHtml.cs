@@ -532,7 +532,8 @@ namespace SearchBrowser
 
   .st-hairline { width: 1px; flex: none; background: var(--hairline); }
 
-  .st-content { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: 38px; overflow-y: auto; }
+  .st-content { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: 38px; overflow-y: auto; scrollbar-width: none; }
+  .st-content::-webkit-scrollbar, .rail::-webkit-scrollbar { display: none; }
   .st-page { display: none; width: 100%; max-width: var(--settings-column); margin: 0 auto; padding: 0 24px 64px; flex-direction: column; gap: 22px; }
   .st-page.on { display: flex; }
   .st-head { display: flex; align-items: center; gap: 10px; padding-bottom: 4px; }
@@ -1918,7 +1919,7 @@ namespace SearchBrowser
           <div class='sr'>
             <div class='sr-main'>
               <div class='sr-words'>
-                <div class='sr-title'>Search for Windows — v0.0005</div>
+                <div class='sr-title'>Search for Windows — v0.0006</div>
                 <div class='sr-detail'>Native Windows x64 + WebView2 port of driceroland/Search with Oriel UI design tokens. Lightweight ~290 KB executable, zero bundled Chromium or Electron overhead.</div>
               </div>
               <div class='sr-control'>
@@ -1966,12 +1967,17 @@ namespace SearchBrowser
   }
 
   function act(action, arg) {
+    var sc = document.querySelector('.st-content');
+    if (sc) sessionStorage.setItem('st_scroll', sc.scrollTop);
     if (window.chrome && window.chrome.webview) {
       window.chrome.webview.postMessage(JSON.stringify({ type: 'settingsAction', action: action, arg: arg || '', sec: curSec }));
     }
   }
 
   function togglePref(prop) {
+    if (typeof event !== 'undefined' && event.currentTarget && event.currentTarget.classList) {
+      event.currentTarget.classList.toggle('on');
+    }
     act('togglePref', prop);
   }
 
@@ -1980,6 +1986,11 @@ namespace SearchBrowser
   }
 
   showSec(curSec);
+  (function() {
+    var sc = document.querySelector('.st-content');
+    var y = parseInt(sessionStorage.getItem('st_scroll') || '0', 10);
+    if (sc && y > 0) sc.scrollTop = y;
+  })();
 </script>
 </body>
 </html>";
