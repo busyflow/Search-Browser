@@ -3390,8 +3390,6 @@ namespace SearchBrowser
                     Margin = new Thickness(0, 0, 4, 4),
                     CornerRadius = new CornerRadius(9),
                     Background = isLive ? Palette.FramePinLive : Palette.FrameTile,
-                    BorderBrush = isLive ? Palette.InkPickedOutline : Brushes.Transparent,
-                    BorderThickness = new Thickness(isLive ? 1 : 0),
                     Cursor = Cursors.Hand,
                     ToolTip = pin.DisplayTitle + "\n" + pin.Url
                 };
