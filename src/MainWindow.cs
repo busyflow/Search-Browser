@@ -1798,7 +1798,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0002";
+            const string currentVersion = "0.0003";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -1862,7 +1862,10 @@ namespace SearchBrowser
 
         public async void CreateAndSelectTab(string url, bool openOmniboxIfBlank, bool isPrivate = false, string groupId = null)
         {
-            var tab = new BrowserTab(url, url == "about:blank" ? "New Tab" : Address.DisplayHost(url), false, isPrivate, Store.Prefs.ActiveSpaceId, groupId);
+            string resolved = (string.IsNullOrWhiteSpace(url) || url == "about:blank" || url.StartsWith("search://", StringComparison.OrdinalIgnoreCase))
+                ? (string.IsNullOrWhiteSpace(url) ? "about:blank" : url)
+                : (Address.TryParseUrl(url) ?? (Store.Prefs.SearchEngineUrl + Uri.EscapeDataString(url)));
+            var tab = new BrowserTab(resolved, resolved == "about:blank" ? "New Tab" : Address.DisplayHost(resolved), false, isPrivate, Store.Prefs.ActiveSpaceId, groupId);
             AttachTabEvents(tab);
             _allTabs.Add(tab);
             await SelectTabAsync(tab);
@@ -2165,7 +2168,7 @@ namespace SearchBrowser
             if (_backBtn != null) _backBtn.Visibility = Store.Prefs.ShowBackBtn ? Visibility.Visible : Visibility.Collapsed;
             if (_forwardBtn != null) _forwardBtn.Visibility = Store.Prefs.ShowForwardBtn ? Visibility.Visible : Visibility.Collapsed;
             if (_reloadBtn != null) _reloadBtn.Visibility = Store.Prefs.ShowReloadBtn ? Visibility.Visible : Visibility.Collapsed;
-            if (_bmDoor != null) _bmDoor.Visibility = Store.Prefs.ShowBookmarksBtn ? Visibility.Visible : Visibility.Collapsed;
+            if (_bmDoor != null) _bmDoor.Visibility = Visibility.Visible;
             if (_alwaysAddressBar != null)
             {
                 _alwaysAddressBar.Visibility = Store.Prefs.AlwaysShowAddressBar ? Visibility.Visible : Visibility.Collapsed;
@@ -2228,6 +2231,10 @@ namespace SearchBrowser
 
         private UIElement CreateFaviconOrGlyph(BrowserTab tab, double size)
         {
+            if (tab.IsPrivate)
+            {
+                return VectorIcons.Draw(VectorIcons.EyeOffPath, Palette.Muted, size * 0.9, 1.4);
+            }
             bool preferLetters = string.Equals(Store.Prefs.TabsShowMode, "Letters", StringComparison.OrdinalIgnoreCase);
             if (!preferLetters && !string.IsNullOrEmpty(tab.FaviconUrl) && tab.FaviconUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             {
@@ -2853,69 +2860,56 @@ namespace SearchBrowser
         {
             StackPanel stack;
             var popup = CreateThemedPopupMenu(null, System.Windows.Controls.Primitives.PlacementMode.MousePoint, out stack);
-            AddPopupMenuItem(popup, stack, tab.Pinned ? "Unpin Tab" : "Pin Tab", "", () =>
+            if (tab.Pinned)
             {
-                tab.Pinned = !tab.Pinned;
-                RefreshTabRows();
-                SaveCurrentSession();
+                AddPopupMenuItem(popup, stack, Store.Prefs.PinnedRows ? "Show as Square" : "Show as Row", "", () =>
+                {
+                    Store.Prefs.PinnedRows = !Store.Prefs.PinnedRows;
+                    Store.SavePrefs();
+                    RefreshTabRows();
+                });
+                AddPopupMenuItem(popup, stack, "Unpin", "", () =>
+                {
+                    tab.Pinned = false;
+                    RefreshTabRows();
+                    SaveCurrentSession();
+                });
+            }
+            else
+            {
+                AddPopupMenuItem(popup, stack, "Pin", "", () =>
+                {
+                    tab.Pinned = true;
+                    RefreshTabRows();
+                    SaveCurrentSession();
+                });
+            }
+            AddPopupMenuItem(popup, stack, "Duplicate", "Ctrl+D", () =>
+            {
+                CreateAndSelectTab(tab.Url, false, tab.IsPrivate, tab.GroupId);
             });
+            AddPopupMenuItem(popup, stack, "Copy Address", "", () =>
+            {
+                Clipboard.SetText(tab.Url ?? "");
+            });
+            AddPopupMenuItem(popup, stack, "Copy Clean Link", "Ctrl+Shift+C", () =>
+            {
+                Clipboard.SetText(CleanLink.Clean(tab.Url));
+            });
+            AddPopupSeparator(stack);
             AddPopupMenuItem(popup, stack, tab.KeepAwake ? "Allow Tab to Sleep" : "Keep This Site Awake", "", () =>
             {
                 tab.KeepAwake = !tab.KeepAwake;
                 RefreshTabRows();
                 SaveCurrentSession();
             });
-            AddPopupMenuItem(popup, stack, "Put Tab to Sleep Now", "", () =>
+            AddPopupMenuItem(popup, stack, "Put to Sleep", "", () =>
             {
                 if (tab != _activeTab) tab.PutToSleep();
             });
-            AddPopupMenuItem(popup, stack, "Duplicate Tab", "Ctrl+D", () =>
-            {
-                CreateAndSelectTab(tab.Url, false, tab.IsPrivate, tab.GroupId);
-            });
-            AddPopupMenuItem(popup, stack, "Split with Current Page", "Alt+Ctrl+N", async () =>
-            {
-                if (_activeTab != null && tab != _activeTab)
-                {
-                    if (!_isSplitView) ToggleSplitView();
-                    await tab.EnsureAwakeAsync(_sharedEnv, _rightPaneHost);
-                    _splitRightTab = tab;
-                    _rightPaneHost.Child = tab.WebView;
-                    RefreshTabRows();
-                }
-            });
-            AddPopupMenuItem(popup, stack, "Copy Clean Link", "Ctrl+Shift+C", () =>
-            {
-                Clipboard.SetText(CleanLink.Clean(tab.Url));
-            });
-
-            var spaceGroups = Store.TabGroups.Where(g => g.SpaceId == Store.Prefs.ActiveSpaceId).ToList();
-            if (spaceGroups.Count > 0)
-            {
-                AddPopupSeparator(stack);
-                foreach (var g in spaceGroups)
-                {
-                    var capG = g;
-                    AddPopupMenuItem(popup, stack, "Move to Folder: " + g.Name, "", () =>
-                    {
-                        tab.GroupId = capG.Id;
-                        SaveCurrentSession();
-                        RefreshTabRows();
-                    });
-                }
-                if (!string.IsNullOrEmpty(tab.GroupId))
-                {
-                    AddPopupMenuItem(popup, stack, "Remove from Folder", "", () =>
-                    {
-                        tab.GroupId = "";
-                        SaveCurrentSession();
-                        RefreshTabRows();
-                    });
-                }
-            }
-
             AddPopupSeparator(stack);
             AddPopupMenuItem(popup, stack, "Close Tab", "Ctrl+W", () => CloseTab(tab));
+            AddPopupMenuItem(popup, stack, "Reopen Closed Tab", "Ctrl+Shift+T", () => ReopenClosedTab());
             popup.IsOpen = true;
         }
 

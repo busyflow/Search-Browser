@@ -41,12 +41,12 @@ namespace SearchBrowser
             if (IsDark)
             {
                 // Exact dark sRGB ratios from Design.swift Palette.NS
-                Ground = BrushFromWhite(0.11);       // #1C1C1C
-                Frame = BrushFromWhite(0.075);       // #131313
+                Ground = BrushFromWhite(0.105);      // #1B1B1B
+                Frame = BrushFromWhite(0.065);       // #101010
                 Ink = BrushFromWhite(0.93);          // #EDEDED
                 Muted = BrushFromWhite(0.58);        // #949494
                 Faint = BrushFromWhite(0.32);        // #525252
-                Hairline = BrushFromWhite(0.20);     // #333333
+                Hairline = BrushFromWhite(0.14);     // #242424
                 Wash = BrushFromWhite(0.175);        // #2D2D2D
                 Hover = BrushFromWhite(0.15);        // #262626
                 Safe = BrushFromRgb(0.29, 0.87, 0.50);

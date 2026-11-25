@@ -21,6 +21,7 @@ namespace SearchBrowser
         public const string FolderPath = "M 2.5,5.2 C 2.5,4.3 3.2,3.6 4.1,3.6 L 6.8,3.6 L 8.2,5.1 L 11.9,5.1 C 12.8,5.1 13.5,5.8 13.5,6.7 L 13.5,11.2 C 13.5,12.1 12.8,12.8 11.9,12.8 L 4.1,12.8 C 3.2,12.8 2.5,12.1 2.5,11.2 Z";
         public const string BookmarkPath = "M 4.6,3.4 C 4.6,2.74 5.14,2.2 5.8,2.2 L 10.2,2.2 C 10.86,2.2 11.4,2.74 11.4,3.4 L 11.4,13.6 L 8,11.1 L 4.6,13.6 Z";
         public const string HomePath = "M 2.5,7.8 L 8,3 L 13.5,7.8 L 13.5,12.5 C 13.5,13.05 13.05,13.5 12.5,13.5 L 3.5,13.5 C 2.95,13.5 2.5,13.05 2.5,12.5 Z";
+        public const string EyeOffPath = "M 2.2,8 C 3.8,5 5.8,3.8 8,3.8 C 10.2,3.8 12.2,5 13.8,8 C 12.2,11 10.2,12.2 8,12.2 C 5.8,12.2 3.8,11 2.2,8 Z M 3,3 L 13,13";
         public const string MoreDotsPath = "M 4,8 A 0.9,0.9 0 1 1 2.2,8 A 0.9,0.9 0 1 1 4,8 M 8.9,8 A 0.9,0.9 0 1 1 7.1,8 A 0.9,0.9 0 1 1 8.9,8 M 13.8,8 A 0.9,0.9 0 1 1 12,8 A 0.9,0.9 0 1 1 13.8,8";
 
         // Oriel Inline Caption Buttons (16x16 viewBox, shown at 12x12)
