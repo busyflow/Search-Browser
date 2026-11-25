@@ -198,7 +198,7 @@ namespace SearchBrowser
                 ? CoreWebView2PreferredColorScheme.Dark
                 : CoreWebView2PreferredColorScheme.Light;
 
-            // Enable Chromium/Edge native Strict Tracking Prevention (Disconnect.me tracker blocking + third-party storage partitioning)
+            // Enable Chromium/Edge native Balanced Tracking Prevention (blocks trackers without breaking Google Search or OAuth sign-ins)
             try
             {
                 if ((Store.Prefs != null && Store.Prefs.PreventCrossSiteTracking) || IsPrivate)
@@ -206,8 +206,8 @@ namespace SearchBrowser
                     var tpProp = core.Profile.GetType().GetProperty("PreferredTrackingPreventionLevel");
                     if (tpProp != null && tpProp.PropertyType.IsEnum)
                     {
-                        object strictVal = Enum.Parse(tpProp.PropertyType, "Strict", true);
-                        tpProp.SetValue(core.Profile, strictVal, null);
+                        object balVal = Enum.Parse(tpProp.PropertyType, "Balanced", true);
+                        tpProp.SetValue(core.Profile, balVal, null);
                     }
                 }
             }
@@ -435,6 +435,17 @@ namespace SearchBrowser
 
             core.NewWindowRequested += (s, e) =>
             {
+                // Allow OAuth/login popups (e.g. "Sign in with Google" on X/Twitter) to open natively so window.opener stays intact!
+                string u = e.Uri ?? "";
+                bool isAuthPopup = u.IndexOf("accounts.google.com", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   u.IndexOf("appleid.apple.com", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   u.IndexOf("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   u.IndexOf("oauth", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                   (e.WindowFeatures != null && e.WindowFeatures.HasSize);
+                if (isAuthPopup)
+                {
+                    return;
+                }
                 e.Handled = true;
                 if (!string.IsNullOrWhiteSpace(e.Uri))
                 {

@@ -1434,7 +1434,7 @@ namespace SearchBrowser
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
         [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern short GetKeyState(int nVirtKey);
+        private static extern short GetAsyncKeyState(int vKey);
         [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
         private static extern IntPtr GetModuleHandle(string lpModuleName);
 
@@ -1483,9 +1483,9 @@ namespace SearchBrowser
                 if ((msg == 0x0100 || msg == 0x0104) && GetForegroundWindow() == _mainHwnd)
                 {
                     int vk = System.Runtime.InteropServices.Marshal.ReadInt32(lParam);
-                    bool ctrl = (GetKeyState(0x11) & 0x8000) != 0;
-                    bool shift = (GetKeyState(0x10) & 0x8000) != 0;
-                    bool alt = (GetKeyState(0x12) & 0x8000) != 0 || msg == 0x0104;
+                    bool ctrl = (GetAsyncKeyState(0x11) & 0x8000) != 0;
+                    bool shift = (GetAsyncKeyState(0x10) & 0x8000) != 0;
+                    bool alt = (GetAsyncKeyState(0x12) & 0x8000) != 0;
 
                     // 1. Alt+1..9 (Space switch) / Alt+Left/Right / Alt+D / Alt+Shift+N/L/D
                     if (alt && !ctrl)
@@ -3026,7 +3026,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0013";
+            const string currentVersion = "0.0014";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
