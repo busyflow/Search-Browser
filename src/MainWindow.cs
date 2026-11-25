@@ -87,6 +87,14 @@ namespace SearchBrowser
         private TranslateTransform _glidingPillTransform;
         private StackPanel _tabsStack;
         private StackPanel _topTabsStack;
+        private Border _backBtn;
+        private Border _forwardBtn;
+        private Border _reloadBtn;
+        private Border _bmDoor;
+        private Border _bookmarksBar;
+        private StackPanel _bookmarksBarStack;
+        private Border _alwaysAddressBar;
+        private TextBox _alwaysAddressInput;
         private TextBlock _spaceTitleText;
         private StackPanel _spaceDotsPanel;
         private Border _spaceFooterBtn;
@@ -94,6 +102,7 @@ namespace SearchBrowser
         private TextBlock _veilBannerText;
 
         // Link Peek modal card (Peek.swift — Shift+Click on any link or external click from a pinned tab)
+        private System.Windows.Controls.Primitives.Popup _peekPopup;
         private Grid _peekOverlay;
         private Border _peekCard;
         private TextBlock _peekTitleText;
@@ -101,6 +110,7 @@ namespace SearchBrowser
         private BrowserTab _peekTab;
 
         // Extension Popup / Page Style floating card
+        private System.Windows.Controls.Primitives.Popup _extPopup;
         private Grid _extPopupOverlay;
         private TextBlock _extPopupTitle;
         private Border _extPopupHost;
@@ -121,6 +131,7 @@ namespace SearchBrowser
         private readonly List<Action> _currentOfferActions = new List<Action>();
 
         // Modal drawer for Settings / History / Bookmarks / Vault / Hidden / Extensions / Downloads / Site Styles / AI
+        private System.Windows.Controls.Primitives.Popup _drawerPopup;
         private Grid _drawerOverlay;
         private Border _drawerCard;
         private TextBlock _drawerTitle;
@@ -201,6 +212,7 @@ namespace SearchBrowser
             _rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             _rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             // 1. FULL-WIDTH TOP BAND (52px high: Back, Forward, Reload on far left; Center tabs when in Top mode; Bookmark ribbon + Minimize, Maximize, Close on far right)
             _topTabBarBorder = new Border
@@ -219,15 +231,15 @@ namespace SearchBrowser
                 Orientation = Orientation.Horizontal,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            helmStack.Children.Add(CreateVectorIconButton(VectorIcons.BackPath, "Back (Alt+Left / Ctrl+[)", () =>
+            _backBtn = CreateVectorIconButton(VectorIcons.BackPath, "Back (Alt+Left / Ctrl+[)", () =>
             {
                 if (_activeTab != null && _activeTab.WebView != null && _activeTab.WebView.CanGoBack) _activeTab.WebView.GoBack();
-            }));
-            helmStack.Children.Add(CreateVectorIconButton(VectorIcons.ForwardPath, "Forward (Alt+Right / Ctrl+])", () =>
+            });
+            _forwardBtn = CreateVectorIconButton(VectorIcons.ForwardPath, "Forward (Alt+Right / Ctrl+])", () =>
             {
                 if (_activeTab != null && _activeTab.WebView != null && _activeTab.WebView.CanGoForward) _activeTab.WebView.GoForward();
-            }));
-            helmStack.Children.Add(CreateVectorIconButton(VectorIcons.ReloadPath, "Reload (Ctrl+R)", () =>
+            });
+            _reloadBtn = CreateVectorIconButton(VectorIcons.ReloadPath, "Reload (Ctrl+R)", () =>
             {
                 if (_activeTab != null && _activeTab.IsWebViewInitialized && _activeTab.WebView != null)
                 {
@@ -235,7 +247,10 @@ namespace SearchBrowser
                     else if (_activeTab.Url != null && _activeTab.Url.StartsWith("search://settings")) _activeTab.RenderSettingsTab();
                     else _activeTab.WebView.CoreWebView2.Reload();
                 }
-            }));
+            });
+            helmStack.Children.Add(_backBtn);
+            helmStack.Children.Add(_forwardBtn);
+            helmStack.Children.Add(_reloadBtn);
             topBarGrid.Children.Add(helmStack);
 
             // Top-center horizontal tab strip (only visible when TabLayout == "Top", otherwise empty drag region)
@@ -258,9 +273,9 @@ namespace SearchBrowser
                 Orientation = Orientation.Horizontal,
                 VerticalAlignment = VerticalAlignment.Center
             };
-            var bmDoor = CreateVectorIconButton(VectorIcons.BookmarkPath, "Bookmark this page (Ctrl+Shift+B)", () => ToggleBookmarkCurrentPage());
-            bmDoor.Margin = new Thickness(0, 0, 12, 0);
-            topRightBtns.Children.Add(bmDoor);
+            _bmDoor = CreateVectorIconButton(VectorIcons.BookmarkPath, "Bookmarks (Ctrl+Shift+B to bookmark)", () => ShowBookmarksPopover(_bmDoor));
+            _bmDoor.Margin = new Thickness(0, 0, 12, 0);
+            topRightBtns.Children.Add(_bmDoor);
 
             topRightBtns.Children.Add(CreateVectorIconButton(VectorIcons.WinMinimizePath, "Minimize", () => WindowState = WindowState.Minimized));
             topRightBtns.Children.Add(CreateVectorIconButton(VectorIcons.WinMaximizePath, "Maximize / Restore", () =>
@@ -278,7 +293,7 @@ namespace SearchBrowser
                     try { DragMove(); } catch { }
             };
             Grid.SetRow(_topTabBarBorder, 0);
-            Grid.SetColumnSpan(_topTabBarBorder, 2);
+            Grid.SetColumnSpan(_topTabBarBorder, 3);
             _rootGrid.Children.Add(_topTabBarBorder);
 
             // 2. ULTRA-CLEAN LEFT SIDEBAR (Search's 232px column: Pinned squares, Tab rows, and "+ New tab" right below the last tab — zero footer clutter!)
@@ -379,6 +394,52 @@ namespace SearchBrowser
             _pageCardBorder.Drop += OnStageDrop;
 
             var pageInnerDock = new DockPanel { LastChildFill = true };
+
+            // Optional Always-Show Address Bar (Settings -> Appearance -> Always show the address bar)
+            _alwaysAddressBar = new Border
+            {
+                Background = Palette.Ground,
+                BorderBrush = Palette.Hairline,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(10, 5, 10, 5),
+                Visibility = Visibility.Collapsed
+            };
+            _alwaysAddressInput = new TextBox
+            {
+                FontSize = 12.5,
+                Background = Palette.Wash,
+                Foreground = Palette.Ink,
+                CaretBrush = Palette.Ink,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(10, 4, 10, 4),
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+            _alwaysAddressInput.KeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Enter && _activeTab != null && !string.IsNullOrWhiteSpace(_alwaysAddressInput.Text))
+                {
+                    _activeTab.Navigate(_alwaysAddressInput.Text.Trim());
+                    e.Handled = true;
+                }
+            };
+            _alwaysAddressBar.Child = _alwaysAddressInput;
+            DockPanel.SetDock(_alwaysAddressBar, Dock.Top);
+            pageInnerDock.Children.Add(_alwaysAddressBar);
+
+            // Optional Bookmarks Bar (Settings -> Appearance -> Show the bookmarks bar)
+            _bookmarksBar = new Border
+            {
+                Height = 30,
+                Background = Palette.Ground,
+                BorderBrush = Palette.Hairline,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(8, 0, 8, 0),
+                Visibility = Visibility.Collapsed
+            };
+            _bookmarksBarStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            _bookmarksBar.Child = _bookmarksBarStack;
+            DockPanel.SetDock(_bookmarksBar, Dock.Top);
+            pageInnerDock.Children.Add(_bookmarksBar);
 
             // Curtain / Veil active banner at top of page
             _veilBanner = new Border
@@ -604,7 +665,18 @@ namespace SearchBrowser
             dock.Children.Add(_peekWebHost);
             _peekCard.Child = dock;
             _peekOverlay.Children.Add(_peekCard);
-            hostGrid.Children.Add(_peekOverlay);
+            _peekOverlay.Background = Brushes.Transparent;
+            _peekOverlay.Visibility = Visibility.Visible;
+            _peekPopup = new System.Windows.Controls.Primitives.Popup
+            {
+                Child = _peekOverlay,
+                PlacementTarget = _pageCardBorder,
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Center,
+                AllowsTransparency = true,
+                StaysOpen = false,
+                PopupAnimation = System.Windows.Controls.Primitives.PopupAnimation.Fade
+            };
+            _peekPopup.Closed += (s, e) => ClosePeekCard();
         }
 
         private async void OpenPeekCard(string url, bool isPrivate)
@@ -619,14 +691,14 @@ namespace SearchBrowser
                         _peekTitleText.Text = "👁 Peek: " + t.DisplayTitle + "  (" + Address.DisplayHost(t.Url) + ")";
                 });
             };
-            _peekOverlay.Visibility = Visibility.Visible;
+            _peekPopup.IsOpen = true;
             await _peekTab.EnsureAwakeAsync(_sharedEnv, _peekWebHost);
             _peekWebHost.Child = _peekTab.WebView;
         }
 
         private void ClosePeekCard()
         {
-            _peekOverlay.Visibility = Visibility.Collapsed;
+            if (_peekPopup != null && _peekPopup.IsOpen) _peekPopup.IsOpen = false;
             _peekWebHost.Child = null;
             if (_peekTab != null)
             {
@@ -688,15 +760,26 @@ namespace SearchBrowser
             dock.Children.Add(_extPopupHost);
             card.Child = dock;
             _extPopupOverlay.Children.Add(card);
-            hostGrid.Children.Add(_extPopupOverlay);
+            _extPopupOverlay.Background = Brushes.Transparent;
+            _extPopupOverlay.Visibility = Visibility.Visible;
+            _extPopup = new System.Windows.Controls.Primitives.Popup
+            {
+                Child = _extPopupOverlay,
+                PlacementTarget = _pageCardBorder,
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Center,
+                AllowsTransparency = true,
+                StaysOpen = false,
+                PopupAnimation = System.Windows.Controls.Primitives.PopupAnimation.Fade
+            };
+            _extPopup.Closed += (s, e) => CloseExtensionPopup();
         }
 
         private async void OpenExtensionPopup(ExtensionInfo ext)
         {
             CloseExtensionPopup();
-            _drawerOverlay.Visibility = Visibility.Collapsed;
+            SetDrawerVisible(false);
             _extPopupTitle.Text = "🧩 " + ext.Name;
-            _extPopupOverlay.Visibility = Visibility.Visible;
+            _extPopup.IsOpen = true;
 
             _extPopupWebView = new WebView2();
             _extPopupHost.Child = _extPopupWebView;
@@ -726,7 +809,7 @@ namespace SearchBrowser
 
         private void CloseExtensionPopup()
         {
-            _extPopupOverlay.Visibility = Visibility.Collapsed;
+            if (_extPopup != null && _extPopup.IsOpen) _extPopup.IsOpen = false;
             _extPopupHost.Child = null;
             if (_extPopupWebView != null)
             {
@@ -945,7 +1028,7 @@ namespace SearchBrowser
             _drawerOverlay.MouseLeftButtonDown += (s, e) =>
             {
                 if (e.OriginalSource == _drawerOverlay)
-                    _drawerOverlay.Visibility = Visibility.Collapsed;
+                    SetDrawerVisible(false);
             };
 
             _drawerCard = new Border
@@ -990,7 +1073,29 @@ namespace SearchBrowser
 
             _drawerCard.Child = dock;
             _drawerOverlay.Children.Add(_drawerCard);
-            hostGrid.Children.Add(_drawerOverlay);
+            _drawerOverlay.Background = Brushes.Transparent;
+            SetDrawerVisible(true);
+            _drawerPopup = new System.Windows.Controls.Primitives.Popup
+            {
+                Child = _drawerOverlay,
+                PlacementTarget = _pageCardBorder,
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Center,
+                AllowsTransparency = true,
+                StaysOpen = false,
+                PopupAnimation = System.Windows.Controls.Primitives.PopupAnimation.Fade
+            };
+        }
+
+        private void SetDrawerVisible(bool open)
+        {
+            if (_drawerPopup == null) return;
+            if (open)
+            {
+                _drawerCard.Background = Palette.CardSurface;
+                _drawerCard.BorderBrush = Palette.Hairline;
+                _drawerTitle.Foreground = Palette.Ink;
+            }
+            _drawerPopup.IsOpen = open;
         }
 
         private async void OnWindowLoaded(object sender, RoutedEventArgs e)
@@ -1202,7 +1307,7 @@ namespace SearchBrowser
                     if (_omniboxPopup != null && _omniboxPopup.IsOpen) HideOmnibox();
                     else if (_peekOverlay.Visibility == Visibility.Visible) ClosePeekCard();
                     else if (_extPopupOverlay.Visibility == Visibility.Visible) CloseExtensionPopup();
-                    else if (_drawerOverlay.Visibility == Visibility.Visible) _drawerOverlay.Visibility = Visibility.Collapsed;
+                    else if (_drawerOverlay.Visibility == Visibility.Visible) SetDrawerVisible(false);
                     else if (_findBar.Visibility == Visibility.Visible) _findBar.Visibility = Visibility.Collapsed;
                     else if (_activeTab != null && _activeTab.IsVeilPicking) StopVeilPicking();
                     return;
@@ -2011,8 +2116,29 @@ namespace SearchBrowser
             _spaceTitleText.Foreground = Palette.Ink;
 
             bool isTop = string.Equals(Store.Prefs.TabLayout, "Top", StringComparison.OrdinalIgnoreCase);
+            bool isRight = string.Equals(Store.Prefs.TabLayout, "Right", StringComparison.OrdinalIgnoreCase);
             bool isIconsOnly = string.Equals(Store.Prefs.TabLayout, "IconsOnly", StringComparison.OrdinalIgnoreCase);
             _topTabBarBorder.Visibility = Visibility.Visible;
+            if (_backBtn != null) _backBtn.Visibility = Store.Prefs.ShowBackBtn ? Visibility.Visible : Visibility.Collapsed;
+            if (_forwardBtn != null) _forwardBtn.Visibility = Store.Prefs.ShowForwardBtn ? Visibility.Visible : Visibility.Collapsed;
+            if (_reloadBtn != null) _reloadBtn.Visibility = Store.Prefs.ShowReloadBtn ? Visibility.Visible : Visibility.Collapsed;
+            if (_bmDoor != null) _bmDoor.Visibility = Store.Prefs.ShowBookmarksBtn ? Visibility.Visible : Visibility.Collapsed;
+            if (_alwaysAddressBar != null)
+            {
+                _alwaysAddressBar.Visibility = Store.Prefs.AlwaysShowAddressBar ? Visibility.Visible : Visibility.Collapsed;
+                _alwaysAddressBar.Background = Palette.Ground;
+                _alwaysAddressBar.BorderBrush = Palette.Hairline;
+                _alwaysAddressInput.Background = Palette.Wash;
+                _alwaysAddressInput.Foreground = Palette.Ink;
+                _alwaysAddressInput.CaretBrush = Palette.Ink;
+            }
+            if (_bookmarksBar != null)
+            {
+                _bookmarksBar.Visibility = Store.Prefs.ShowBookmarksBar ? Visibility.Visible : Visibility.Collapsed;
+                _bookmarksBar.Background = Palette.Ground;
+                _bookmarksBar.BorderBrush = Palette.Hairline;
+                RefreshBookmarksBar();
+            }
             if (isTop)
             {
                 _sidebarBorder.Visibility = Visibility.Collapsed;
@@ -2022,6 +2148,7 @@ namespace SearchBrowser
             else
             {
                 _topTabsStack.Visibility = Visibility.Collapsed;
+                Grid.SetColumn(_sidebarBorder, isRight ? 2 : 0);
                 _sidebarBorder.Width = isIconsOnly ? 56 : 232;
                 _sidebarBorder.Visibility = Store.Prefs.SidebarCollapsed ? Visibility.Collapsed : Visibility.Visible;
                 _sidebarHoverHotzone.Visibility = Store.Prefs.SidebarCollapsed ? Visibility.Visible : Visibility.Collapsed;
@@ -2058,7 +2185,8 @@ namespace SearchBrowser
 
         private UIElement CreateFaviconOrGlyph(BrowserTab tab, double size)
         {
-            if (!string.IsNullOrEmpty(tab.FaviconUrl) && tab.FaviconUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            bool preferLetters = string.Equals(Store.Prefs.TabsShowMode, "Letters", StringComparison.OrdinalIgnoreCase);
+            if (!preferLetters && !string.IsNullOrEmpty(tab.FaviconUrl) && tab.FaviconUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
@@ -2760,7 +2888,7 @@ namespace SearchBrowser
         {
             _omniboxIsTabSwitcherMode = tabSwitcherMode;
             _omniboxIsNewTabMode = newTabMode && !tabSwitcherMode;
-            _drawerOverlay.Visibility = Visibility.Collapsed;
+            SetDrawerVisible(false);
             _omniboxCard.Background = Palette.Ground;
             _omniboxCard.BorderBrush = Palette.Hairline;
             _omniboxInput.Foreground = Palette.Ink;
@@ -3093,7 +3221,7 @@ namespace SearchBrowser
                 }
                 if (_drawerOverlay.Visibility == Visibility.Visible)
                 {
-                    _drawerOverlay.Visibility = Visibility.Collapsed;
+                    SetDrawerVisible(false);
                     e.Handled = true;
                     return;
                 }
@@ -3457,9 +3585,100 @@ namespace SearchBrowser
             await _activeTab.WebView.CoreWebView2.ExecuteScriptAsync(PageFeatures.GetInPageTranslateScript(Store.Prefs.TranslateTargetLang));
         }
 
-        private void ToggleBookmarkCurrentPage()
+        private void ShowBookmarksPopover(FrameworkElement anchor)
         {
-            if (_activeTab == null || string.IsNullOrWhiteSpace(_activeTab.Url) || _activeTab.Url == "about:blank") return;
+            StackPanel stack;
+            var popup = CreateThemedPopupMenu(anchor, System.Windows.Controls.Primitives.PlacementMode.Bottom, out stack);
+            stack.MinWidth = 260;
+
+            bool canBookmark = _activeTab != null && !string.IsNullOrWhiteSpace(_activeTab.Url) && _activeTab.Url != "about:blank" && !_activeTab.Url.StartsWith("search://");
+            var existing = canBookmark ? Store.Bookmarks.FirstOrDefault(b => string.Equals(b.Url, _activeTab.Url, StringComparison.OrdinalIgnoreCase)) : null;
+
+            if (Store.Bookmarks.Count == 0)
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "No bookmarks yet",
+                    FontSize = 12,
+                    Foreground = Palette.Muted,
+                    Margin = new Thickness(10, 6, 10, 6)
+                });
+            }
+            else
+            {
+                foreach (var bm in Store.Bookmarks.Take(12).ToList())
+                {
+                    var cap = bm;
+                    AddPopupMenuItem(popup, stack, cap.Title, Address.DisplayHost(cap.Url), () =>
+                    {
+                        if (_activeTab != null) _activeTab.Navigate(cap.Url);
+                    });
+                }
+            }
+
+            AddPopupSeparator(stack);
+            if (canBookmark)
+            {
+                AddPopupMenuItem(popup, stack, existing != null ? "✓ Remove This Page" : "+ Add This Page", "Ctrl+Shift+B", () =>
+                {
+                    ToggleBookmarkCurrentPage(false);
+                });
+            }
+            AddPopupMenuItem(popup, stack, "Manage & Import Bookmarks…", "", () => ShowBookmarksDrawer());
+            popup.IsOpen = true;
+        }
+
+        private void RefreshBookmarksBar()
+        {
+            if (_bookmarksBarStack == null) return;
+            _bookmarksBarStack.Children.Clear();
+            if (Store.Bookmarks.Count == 0)
+            {
+                _bookmarksBarStack.Children.Add(new TextBlock
+                {
+                    Text = "No bookmarks yet: Ctrl+Shift+B keeps the page you're on",
+                    FontSize = 11.5,
+                    Foreground = Palette.Muted,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                return;
+            }
+            foreach (var bm in Store.Bookmarks.Take(18).ToList())
+            {
+                var cap = bm;
+                var btn = new Border
+                {
+                    Height = 22,
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(8, 0, 8, 0),
+                    Margin = new Thickness(0, 0, 4, 0),
+                    Background = Brushes.Transparent,
+                    Cursor = Cursors.Hand,
+                    ToolTip = cap.Title + "\n" + cap.Url,
+                    Child = new TextBlock
+                    {
+                        Text = cap.Title,
+                        MaxWidth = 150,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        FontSize = 12,
+                        Foreground = Palette.Ink,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                };
+                btn.MouseEnter += (s, e) => btn.Background = Palette.Hover;
+                btn.MouseLeave += (s, e) => btn.Background = Brushes.Transparent;
+                btn.MouseLeftButtonUp += (s, e) =>
+                {
+                    if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) CreateAndSelectTab(cap.Url, false);
+                    else if (_activeTab != null) _activeTab.Navigate(cap.Url);
+                };
+                _bookmarksBarStack.Children.Add(btn);
+            }
+        }
+
+        private void ToggleBookmarkCurrentPage(bool openDrawer = true)
+        {
+            if (_activeTab == null || string.IsNullOrWhiteSpace(_activeTab.Url) || _activeTab.Url == "about:blank" || _activeTab.Url.StartsWith("search://")) return;
             var existing = Store.Bookmarks.FirstOrDefault(b => string.Equals(b.Url, _activeTab.Url, StringComparison.OrdinalIgnoreCase));
             if (existing != null)
             {
@@ -3477,7 +3696,8 @@ namespace SearchBrowser
             }
             Store.SaveBookmarks();
             FolderSync.PushToSyncFolder();
-            ShowBookmarksDrawer();
+            RefreshBookmarksBar();
+            if (openDrawer) ShowBookmarksDrawer();
         }
 
         // BENCH SERVER COMMAND HANDLER (Bench.swift parity for CLI & AI agents)
@@ -3549,12 +3769,12 @@ namespace SearchBrowser
         {
             _drawerTitle.Text = "Search — Controls & Settings";
             _drawerContent.Children.Clear();
-            _drawerOverlay.Visibility = Visibility.Visible;
+            SetDrawerVisible(true);
 
             // Quick Actions row
             var quickPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 14) };
-            quickPanel.Children.Add(CreatePillActionButton("📖 Reading Mode (Ctrl+Shift+R)", async () => { _drawerOverlay.Visibility = Visibility.Collapsed; await ToggleReadingModeAsync(); }));
-            quickPanel.Children.Add(CreatePillActionButton("🪄 Hide Element (Ctrl+Shift+H)", async () => { _drawerOverlay.Visibility = Visibility.Collapsed; await ToggleVeilPickingAsync(); }));
+            quickPanel.Children.Add(CreatePillActionButton("📖 Reading Mode (Ctrl+Shift+R)", async () => { SetDrawerVisible(false); await ToggleReadingModeAsync(); }));
+            quickPanel.Children.Add(CreatePillActionButton("🪄 Hide Element (Ctrl+Shift+H)", async () => { SetDrawerVisible(false); await ToggleVeilPickingAsync(); }));
             quickPanel.Children.Add(CreatePillActionButton("🌙 Dusk Site Dark Mode (Ctrl+Shift+D)", async () =>
             {
                 if (_activeTab != null)
@@ -3562,18 +3782,18 @@ namespace SearchBrowser
                     PageFeatures.ToggleDuskForSite(Address.DisplayHost(_activeTab.Url));
                     await _activeTab.ApplySiteStyleSheetsAsync();
                 }
-                _drawerOverlay.Visibility = Visibility.Collapsed;
+                SetDrawerVisible(false);
             }));
-            quickPanel.Children.Add(CreatePillActionButton("🌐 Translate Page", async () => { _drawerOverlay.Visibility = Visibility.Collapsed; await ToggleTranslatePageAsync(); }));
+            quickPanel.Children.Add(CreatePillActionButton("🌐 Translate Page", async () => { SetDrawerVisible(false); await ToggleTranslatePageAsync(); }));
             quickPanel.Children.Add(CreatePillActionButton("🎨 Custom Site CSS", () => ShowSiteStylesDrawer()));
-            quickPanel.Children.Add(CreatePillActionButton("📺 Float Video PiP (Ctrl+Shift+P)", async () => { _drawerOverlay.Visibility = Visibility.Collapsed; await TogglePictureInPictureAsync(); }));
+            quickPanel.Children.Add(CreatePillActionButton("📺 Float Video PiP (Ctrl+Shift+P)", async () => { SetDrawerVisible(false); await TogglePictureInPictureAsync(); }));
             quickPanel.Children.Add(CreatePillActionButton("🔗 Copy Clean Link (Ctrl+Shift+C)", () =>
             {
                 if (_activeTab != null) Clipboard.SetText(CleanLink.Clean(_activeTab.Url));
-                _drawerOverlay.Visibility = Visibility.Collapsed;
+                SetDrawerVisible(false);
             }));
-            quickPanel.Children.Add(CreatePillActionButton("◫ Split View (Alt+Ctrl+N)", () => { _drawerOverlay.Visibility = Visibility.Collapsed; ToggleSplitView(); }));
-            quickPanel.Children.Add(CreatePillActionButton("🕶 Private Tab (Ctrl+Shift+N)", () => { _drawerOverlay.Visibility = Visibility.Collapsed; CreateAndSelectTab("about:blank", true, true); }));
+            quickPanel.Children.Add(CreatePillActionButton("◫ Split View (Alt+Ctrl+N)", () => { SetDrawerVisible(false); ToggleSplitView(); }));
+            quickPanel.Children.Add(CreatePillActionButton("🕶 Private Tab (Ctrl+Shift+N)", () => { SetDrawerVisible(false); CreateAndSelectTab("about:blank", true, true); }));
             _drawerContent.Children.Add(quickPanel);
 
             // Navigation to dedicated panels
@@ -3751,7 +3971,7 @@ namespace SearchBrowser
             string host = _activeTab != null ? Address.DisplayHost(_activeTab.Url) : "";
             _drawerTitle.Text = "Site Styles — Custom CSS Boost" + (string.IsNullOrEmpty(host) ? "" : " for " + host);
             _drawerContent.Children.Clear();
-            _drawerOverlay.Visibility = Visibility.Visible;
+            SetDrawerVisible(true);
 
             if (string.IsNullOrEmpty(host))
             {
@@ -3797,7 +4017,7 @@ namespace SearchBrowser
         {
             _drawerTitle.Text = "Bring Your Bookmarks & Passwords into Search";
             _drawerContent.Children.Clear();
-            _drawerOverlay.Visibility = Visibility.Visible;
+            SetDrawerVisible(true);
 
             var statusNote = CreateMutedNote("Import bookmarks directly from Chrome, Edge, Brave, Arc, or Opera in one click — nothing leaves your PC.");
             _drawerContent.Children.Add(statusNote);
@@ -3837,7 +4057,7 @@ namespace SearchBrowser
         {
             _drawerTitle.Text = "Bookmarks (Ctrl+Shift+B to bookmark current page)";
             _drawerContent.Children.Clear();
-            _drawerOverlay.Visibility = Visibility.Visible;
+            SetDrawerVisible(true);
 
             var topBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
             topBar.Children.Add(CreatePillActionButton("+ Bookmark Current Page", () => ToggleBookmarkCurrentPage()));
@@ -3856,7 +4076,7 @@ namespace SearchBrowser
                 var captured = bm;
                 AddListRow(bm.Title, bm.Url, "Open", () =>
                 {
-                    _drawerOverlay.Visibility = Visibility.Collapsed;
+                    SetDrawerVisible(false);
                     if (_activeTab != null) _activeTab.Navigate(captured.Url);
                 }, "Remove", () =>
                 {
@@ -3871,7 +4091,7 @@ namespace SearchBrowser
         {
             _drawerTitle.Text = "History (Local only — never leaves your PC)";
             _drawerContent.Children.Clear();
-            _drawerOverlay.Visibility = Visibility.Visible;
+            SetDrawerVisible(true);
 
             var topBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
             topBar.Children.Add(CreatePillActionButton("Clear All History", () =>
@@ -3894,7 +4114,7 @@ namespace SearchBrowser
                 var captured = h;
                 AddListRow(h.Title, h.Url, "Open", () =>
                 {
-                    _drawerOverlay.Visibility = Visibility.Collapsed;
+                    SetDrawerVisible(false);
                     if (_activeTab != null) _activeTab.Navigate(captured.Url);
                 });
             }
@@ -3905,12 +4125,12 @@ namespace SearchBrowser
             string host = _activeTab != null ? Address.DisplayHost(_activeTab.Url) : "";
             _drawerTitle.Text = "Curtain — Hidden Clutter" + (string.IsNullOrEmpty(host) ? "" : " on " + host);
             _drawerContent.Children.Clear();
-            _drawerOverlay.Visibility = Visibility.Visible;
+            SetDrawerVisible(true);
 
             var topBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 12) };
             topBar.Children.Add(CreatePillActionButton("🪄 Point & Hide Element on Page (Ctrl+Shift+H)", async () =>
             {
-                _drawerOverlay.Visibility = Visibility.Collapsed;
+                SetDrawerVisible(false);
                 await ToggleVeilPickingAsync();
             }));
             if (!string.IsNullOrEmpty(host) && PageFeatures.GetVeils(host).Count > 0)
@@ -3948,7 +4168,7 @@ namespace SearchBrowser
         {
             _drawerTitle.Text = "Vault — Encrypted Local Passwords (DPAPI)";
             _drawerContent.Children.Clear();
-            _drawerOverlay.Visibility = Visibility.Visible;
+            SetDrawerVisible(true);
 
             var addBox = new Border
             {
@@ -4014,7 +4234,7 @@ namespace SearchBrowser
                     {
                         Clipboard.SetText(dec);
                         await FillSavedLoginAsync(cap);
-                        _drawerOverlay.Visibility = Visibility.Collapsed;
+                        SetDrawerVisible(false);
                     }
                 }, "Delete", () =>
                 {
@@ -4031,7 +4251,7 @@ namespace SearchBrowser
         {
             _drawerTitle.Text = "Chrome Extensions — without Chrome";
             _drawerContent.Children.Clear();
-            _drawerOverlay.Visibility = Visibility.Visible;
+            SetDrawerVisible(true);
 
             var installBox = new Border
             {
@@ -4090,7 +4310,7 @@ namespace SearchBrowser
 
             var browseStoreBtn = CreatePillActionButton("🌐 Open Chrome Web Store", () =>
             {
-                _drawerOverlay.Visibility = Visibility.Collapsed;
+                SetDrawerVisible(false);
                 if (_activeTab != null) _activeTab.Navigate("https://chromewebstore.google.com");
             });
             browseStoreBtn.Margin = new Thickness(0, 8, 0, 0);
@@ -4124,7 +4344,7 @@ namespace SearchBrowser
         {
             _drawerTitle.Text = "Downloads (Ctrl+Shift+J)";
             _drawerContent.Children.Clear();
-            _drawerOverlay.Visibility = Visibility.Visible;
+            SetDrawerVisible(true);
 
             if (Downloads.Count == 0)
             {
