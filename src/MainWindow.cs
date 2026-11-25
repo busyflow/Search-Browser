@@ -1423,6 +1423,209 @@ namespace SearchBrowser
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+        private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern short GetKeyState(int nVirtKey);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        private IntPtr _mainHwnd = IntPtr.Zero;
+        private IntPtr _kbHookId = IntPtr.Zero;
+        private LowLevelKeyboardProc _kbHookProc;
+
+        private void InstallGlobalShortcutHook()
+        {
+            try
+            {
+                _mainHwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                if (_kbHookId != IntPtr.Zero) return;
+                _kbHookProc = LowLevelKeyboardCallback;
+                using (var curProc = Process.GetCurrentProcess())
+                using (var curMod = curProc.MainModule)
+                {
+                    _kbHookId = SetWindowsHookEx(13, _kbHookProc, GetModuleHandle(curMod.ModuleName), 0);
+                }
+            }
+            catch { }
+        }
+
+        private void UninstallGlobalShortcutHook()
+        {
+            if (_kbHookId != IntPtr.Zero)
+            {
+                try { UnhookWindowsHookEx(_kbHookId); } catch { }
+                _kbHookId = IntPtr.Zero;
+            }
+        }
+
+        private IntPtr LowLevelKeyboardCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0 && _mainHwnd != IntPtr.Zero)
+            {
+                int msg = wParam.ToInt32();
+                if ((msg == 0x0100 || msg == 0x0104) && GetForegroundWindow() == _mainHwnd)
+                {
+                    int vk = System.Runtime.InteropServices.Marshal.ReadInt32(lParam);
+                    bool ctrl = (GetKeyState(0x11) & 0x8000) != 0;
+                    bool shift = (GetKeyState(0x10) & 0x8000) != 0;
+                    bool alt = (GetKeyState(0x12) & 0x8000) != 0 || msg == 0x0104;
+
+                    // 1. Alt+1..9 (Space switch) / Alt+Left/Right / Alt+D / Alt+Shift+N/L/D
+                    if (alt && !ctrl)
+                    {
+                        if (!shift)
+                        {
+                            int spIdx = (vk >= 0x31 && vk <= 0x39) ? (vk - 0x31) : ((vk >= 0x61 && vk <= 0x69) ? (vk - 0x61) : -1);
+                            if (spIdx >= 0)
+                            {
+                                int capIdx = spIdx;
+                                Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() =>
+                                {
+                                    if (!ShouldRunShortcutOnce("A:" + (capIdx + 1))) return;
+                                    if (Store.Prefs.CtrlNumbersSwitchSpaces)
+                                    {
+                                        var st = GetTabsForActiveSpace();
+                                        int ti = (capIdx == 8 && st.Count > 0) ? st.Count - 1 : capIdx;
+                                        if (ti < st.Count) { var _ = SelectTabAsync(st[ti]); }
+                                    }
+                                    else if (capIdx < Store.Spaces.Count)
+                                    {
+                                        CycleSpace(capIdx);
+                                    }
+                                }));
+                                return (IntPtr)1;
+                            }
+                            if (vk == 0x25 || vk == 0x27) // Alt+Left / Alt+Right
+                            {
+                                bool isLeft = vk == 0x25;
+                                Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() =>
+                                {
+                                    if (_activeTab != null && _activeTab.WebView != null)
+                                    {
+                                        if (isLeft && _activeTab.WebView.CanGoBack) _activeTab.WebView.GoBack();
+                                        else if (!isLeft && _activeTab.WebView.CanGoForward) _activeTab.WebView.GoForward();
+                                    }
+                                }));
+                                return (IntPtr)1;
+                            }
+                            if (vk == 0x44) // Alt+D
+                            {
+                                Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => ShowOmnibox(false, false)));
+                                return (IntPtr)1;
+                            }
+                        }
+                        else
+                        {
+                            if (vk == 0x4E) { Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => ToggleSplitView())); return (IntPtr)1; }
+                            if (vk == 0x4C) { Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => OpenOrSelectSettingsTab("passwords"))); return (IntPtr)1; }
+                        }
+                    }
+
+                    // 2. Function keys: F5 (Reload), F6 (Address), F11 (FullScreen), F12 (DevTools)
+                    if (!alt && !ctrl && !shift)
+                    {
+                        if (vk == 0x74) { Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => { if (_activeTab != null && _activeTab.IsWebViewInitialized && _activeTab.WebView != null) _activeTab.WebView.CoreWebView2.Reload(); })); return (IntPtr)1; }
+                        if (vk == 0x75) { Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => ShowOmnibox(false, false))); return (IntPtr)1; }
+                        if (vk == 0x7A) { Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => ToggleFullScreen())); return (IntPtr)1; }
+                        if (vk == 0x7B) { Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => { if (_activeTab != null && _activeTab.IsWebViewInitialized && _activeTab.WebView != null) _activeTab.WebView.CoreWebView2.OpenDevToolsWindow(); })); return (IntPtr)1; }
+                    }
+
+                    // 3. Ctrl+<key> and Ctrl+Shift+<key> browser shortcuts (never swallows C/V/X/A/Z text editing)
+                    if (ctrl && !alt)
+                    {
+                        if (vk == 0x09) // Ctrl+Tab / Ctrl+Shift+Tab
+                        {
+                            bool capSh = shift;
+                            Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => StepMruSwitcher(capSh)));
+                            return (IntPtr)1;
+                        }
+                        if (vk == 0x21 || vk == 0x22) // Ctrl+PageUp / PageDown
+                        {
+                            bool up = vk == 0x21;
+                            Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => { var _ = StepAdjacentTabAsync(up); }));
+                            return (IntPtr)1;
+                        }
+                        if (vk == 0x73) // Ctrl+F4
+                        {
+                            Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => { if (_activeTab != null) CloseTab(_activeTab); }));
+                            return (IntPtr)1;
+                        }
+                        if (!shift && vk >= 0x31 && vk <= 0x39)
+                        {
+                            int capIdx = vk - 0x31;
+                            Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() =>
+                            {
+                                if (!ShouldRunShortcutOnce("C:" + (capIdx + 1))) return;
+                                if (Store.Prefs.CtrlNumbersSwitchSpaces && capIdx < Store.Spaces.Count) { CycleSpace(capIdx); return; }
+                                var st = GetTabsForActiveSpace();
+                                int ti = (capIdx == 8 && st.Count > 0) ? st.Count - 1 : capIdx;
+                                if (ti < st.Count) { var _ = SelectTabAsync(st[ti]); }
+                            }));
+                            return (IntPtr)1;
+                        }
+
+                        string keyStr = null;
+                        if (!shift)
+                        {
+                            if (vk == 0x48) keyStr = "h";
+                            else if (vk == 0x59) keyStr = "y";
+                            else if (vk == 0xBC) keyStr = ",";
+                            else if (vk == 0x54) keyStr = "t";
+                            else if (vk == 0x57) keyStr = "w";
+                            else if (vk == 0x4C) keyStr = "l";
+                            else if (vk == 0x4B) keyStr = "k";
+                            else if (vk == 0x53) keyStr = "s";
+                            else if (vk == 0x46) keyStr = "f";
+                            else if (vk == 0x4A) keyStr = "j";
+                            else if (vk == 0x52) keyStr = "r";
+                            else if (vk == 0x44) keyStr = "d";
+                            else if (vk == 0xDB) keyStr = "[";
+                            else if (vk == 0xDD) keyStr = "]";
+                        }
+                        else
+                        {
+                            if (vk == 0x54) keyStr = "t";
+                            else if (vk == 0x4E) keyStr = "n";
+                            else if (vk == 0x53) keyStr = "s";
+                            else if (vk == 0x42) keyStr = "b";
+                            else if (vk == 0x52) keyStr = "r";
+                            else if (vk == 0x48) keyStr = "h";
+                            else if (vk == 0x55) keyStr = "u";
+                            else if (vk == 0x50) keyStr = "p";
+                            else if (vk == 0x4A) keyStr = "j";
+                            else if (vk == 0x49)
+                            {
+                                Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => { if (_activeTab != null && _activeTab.IsWebViewInitialized && _activeTab.WebView != null) _activeTab.WebView.CoreWebView2.OpenDevToolsWindow(); }));
+                                return (IntPtr)1;
+                            }
+                        }
+
+                        if (keyStr != null)
+                        {
+                            string capKey = keyStr;
+                            bool capSh = shift;
+                            Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() =>
+                            {
+                                string sig = "C" + (capSh ? "S" : "") + ":" + capKey;
+                                if (!ShouldRunShortcutOnce(sig)) return;
+                                var _ = HandleShortcutKeyAsync(capKey, capSh);
+                            }));
+                            return (IntPtr)1;
+                        }
+                    }
+                }
+            }
+            return CallNextHookEx(_kbHookId, nCode, wParam, lParam);
+        }
+
         private sealed class Win32OwnerWindow : System.Windows.Forms.IWin32Window
         {
             private readonly IntPtr _hwnd;
@@ -1611,8 +1814,10 @@ namespace SearchBrowser
         {
             if (!_isResizingSidebar) return;
             Point cur = PointToScreen(e.GetPosition(this));
+            var src = PresentationSource.FromVisual(this);
+            double dpiX = (src != null && src.CompositionTarget != null) ? src.CompositionTarget.TransformToDevice.M11 : 1.0;
             bool isRight = string.Equals(Store.Prefs.TabLayout, "Right", StringComparison.OrdinalIgnoreCase);
-            double delta = isRight ? (_resizeStartScreen.X - cur.X) : (cur.X - _resizeStartScreen.X);
+            double delta = (isRight ? (_resizeStartScreen.X - cur.X) : (cur.X - _resizeStartScreen.X)) / dpiX;
             double next = _resizeStartWidth + delta;
             if (Store.Prefs.NarrowToIcons && next < 200)
             {
@@ -1626,11 +1831,22 @@ namespace SearchBrowser
             if (string.Equals(Store.Prefs.TabLayout, "IconsOnly", StringComparison.OrdinalIgnoreCase) && next >= 200)
             {
                 Store.Prefs.TabLayout = "Left";
+                ApplyLayoutPreferences();
             }
-            double clamped = Math.Max(176, Math.Min(440, next));
+            double clamped = Math.Round(Math.Max(176, Math.Min(440, next)));
+            if (Math.Abs(_sidebarBorder.Width - clamped) < 0.5) return;
             Store.Prefs.SidebarWidth = clamped;
             _sidebarBorder.Width = clamped;
-            RefreshTabRows();
+            // Smoothly resize existing pin squares in-place without rebuilding the entire sidebar visual tree!
+            if (_pinsPanel != null && _pinsPanel.Children.Count > 0)
+            {
+                double cellW = GetDynamicPinCellWidth(_pinsPanel.Children.Count);
+                foreach (var child in _pinsPanel.Children)
+                {
+                    var sq = child as Border;
+                    if (sq != null) sq.Width = cellW;
+                }
+            }
         }
 
         private void OnSidebarResizeUp(object sender, MouseButtonEventArgs e)
@@ -1769,6 +1985,7 @@ namespace SearchBrowser
                 int pref = 2; // DWMWCP_ROUND
                 DwmSetWindowAttribute(hwnd, 33, ref pref, sizeof(int));
                 SetWindowBorderColor();
+                InstallGlobalShortcutHook();
             }
             catch { }
             _leftPaneHost.SizeChanged += (s2, e2) => ApplyRoundedCornersToHost(_leftPaneHost);
@@ -1850,6 +2067,8 @@ namespace SearchBrowser
             {
                 if (t.IsPrivate) t.CleanupPrivateStorage();
             }
+            UninstallGlobalShortcutHook();
+            System.Windows.Interop.ComponentDispatcher.ThreadPreprocessMessage -= OnThreadPreprocessMessage;
             BenchServer.Stop();
             SaveCurrentSession();
         }
@@ -3638,7 +3857,8 @@ namespace SearchBrowser
             double inner = Math.Max(140, sbW - 20); // 10px left + 10px right padding
             int cols = pinCount >= 4 ? 4 : 3;
             double gap = 4;
-            return Math.Floor((inner - gap * (cols - 1)) / cols) - 1;
+            // Every pin square has Margin(0,0,4,4), so all `cols` items contribute `gap * cols` horizontal margin
+            return Math.Max(32, Math.Floor((inner - gap * cols - 2) / cols));
         }
 
         private void RefreshTabRows()
