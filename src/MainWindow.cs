@@ -1712,16 +1712,35 @@ namespace SearchBrowser
             SetFullScreen(!_isFullScreen, false);
         }
 
+        private Rect _preFullScreenBounds = Rect.Empty;
         private void SetFullScreen(bool enter, bool fromWebElement)
         {
             if (enter == _isFullScreen) return;
             if (enter)
             {
                 _preFullScreenState = WindowState;
+                _preFullScreenBounds = new Rect(Left, Top, Width, Height);
                 _isFullScreen = true;
-                WindowState = WindowState.Maximized;
                 _topTabBarBorder.Visibility = Visibility.Collapsed;
                 _rootGrid.RowDefinitions[0].Height = new GridLength(0);
+
+                // Cover the entire physical monitor (including wacOS top bar & dock), just like Brave/Chrome F11
+                WindowStyle = WindowStyle.None;
+                WindowState = WindowState.Normal;
+                try
+                {
+                    var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                    var scr = System.Windows.Forms.Screen.FromHandle(hwnd);
+                    var src = PresentationSource.FromVisual(this);
+                    double dx = (src != null && src.CompositionTarget != null) ? src.CompositionTarget.TransformToDevice.M11 : 1.0;
+                    double dy = (src != null && src.CompositionTarget != null) ? src.CompositionTarget.TransformToDevice.M22 : 1.0;
+                    Left = scr.Bounds.Left / dx;
+                    Top = scr.Bounds.Top / dy;
+                    Width = scr.Bounds.Width / dx;
+                    Height = scr.Bounds.Height / dy;
+                }
+                catch { WindowState = WindowState.Maximized; }
+
                 ApplyLayoutPreferences();
                 if (fromWebElement)
                 {
@@ -1740,8 +1759,16 @@ namespace SearchBrowser
             else
             {
                 _isFullScreen = false;
+                WindowStyle = WindowStyle.SingleBorderWindow;
                 _topTabBarBorder.Visibility = Visibility.Visible;
                 _rootGrid.RowDefinitions[0].Height = new GridLength(52);
+                if (!_preFullScreenBounds.IsEmpty)
+                {
+                    Left = _preFullScreenBounds.Left;
+                    Top = _preFullScreenBounds.Top;
+                    Width = _preFullScreenBounds.Width;
+                    Height = _preFullScreenBounds.Height;
+                }
                 WindowState = _preFullScreenState;
                 ApplyLayoutPreferences();
             }
