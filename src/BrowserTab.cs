@@ -36,6 +36,9 @@ namespace SearchBrowser
         public bool IsMuted { get; set; }
         public bool IsAudible { get; set; }
         public double ReadProgress { get; set; }
+        public string CustomLetter { get; set; }
+        public string CustomTitle { get; set; }
+        public bool KeepInEverySpace { get; set; }
 
         public event Action<BrowserTab> StateChanged;
         public event Action<BrowserTab, string> WebMessageReceived;
@@ -59,6 +62,8 @@ namespace SearchBrowser
         {
             get
             {
+                if (!string.IsNullOrWhiteSpace(CustomTitle))
+                    return CustomTitle;
                 if (Url != null && Url.StartsWith("search://settings", StringComparison.OrdinalIgnoreCase))
                     return "Settings";
                 if (!string.IsNullOrWhiteSpace(Title) && Title != "about:blank")
@@ -72,6 +77,8 @@ namespace SearchBrowser
         {
             get
             {
+                if (!string.IsNullOrWhiteSpace(CustomLetter))
+                    return CustomLetter.Substring(0, 1).ToUpperInvariant();
                 if (Url != null && Url.StartsWith("search://settings", StringComparison.OrdinalIgnoreCase))
                     return "S";
                 string host = Address.DisplayHost(Url);

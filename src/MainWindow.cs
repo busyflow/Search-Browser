@@ -1671,7 +1671,10 @@ namespace SearchBrowser
                         Id = string.IsNullOrEmpty(st.Id) ? Guid.NewGuid().ToString("N") : st.Id,
                         KeepAwake = st.KeepAwake,
                         FaviconUrl = st.FaviconUrl,
-                        HomeUrl = st.Url
+                        HomeUrl = st.Url,
+                        CustomLetter = st.CustomLetter,
+                        CustomTitle = st.CustomTitle,
+                        KeepInEverySpace = st.KeepInEverySpace
                     };
                     AttachTabEvents(tab);
                     _allTabs.Add(tab);
@@ -1723,7 +1726,10 @@ namespace SearchBrowser
                 Pinned = t.Pinned,
                 KeepAwake = t.KeepAwake,
                 SpaceId = t.SpaceId,
-                GroupId = t.GroupId
+                GroupId = t.GroupId,
+                CustomLetter = t.CustomLetter,
+                CustomTitle = t.CustomTitle,
+                KeepInEverySpace = t.KeepInEverySpace
             }).ToList();
             Store.SaveSession(list);
             if (Store.Prefs.SyncEnabled) FolderSync.PushToSyncFolder();
@@ -1737,7 +1743,7 @@ namespace SearchBrowser
         private List<BrowserTab> GetTabsForActiveSpace()
         {
             string sp = Store.Prefs.ActiveSpaceId ?? "default";
-            return _allTabs.Where(t => string.Equals(t.SpaceId, sp, StringComparison.OrdinalIgnoreCase)).ToList();
+            return _allTabs.Where(t => t.KeepInEverySpace || string.Equals(t.SpaceId, sp, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
         private void AttachTabEvents(BrowserTab tab)
@@ -3709,7 +3715,7 @@ namespace SearchBrowser
             });
         }
 
-        private void AddPopupMenuItem(System.Windows.Controls.Primitives.Popup popup, StackPanel stack, string title, string shortcut, Action action)
+        private void AddPopupMenuItem(System.Windows.Controls.Primitives.Popup popup, StackPanel stack, string title, string shortcut, Action action, bool enabled = true)
         {
             var row = new Border
             {
@@ -3718,7 +3724,8 @@ namespace SearchBrowser
                 Padding = new Thickness(9, 0, 9, 0),
                 Margin = new Thickness(0, 1, 0, 1),
                 Background = Brushes.Transparent,
-                Cursor = Cursors.Hand
+                Cursor = enabled ? Cursors.Hand : Cursors.Arrow,
+                Opacity = enabled ? 1.0 : 0.42
             };
             var dock = new DockPanel();
             if (!string.IsNullOrEmpty(shortcut))
@@ -3743,14 +3750,17 @@ namespace SearchBrowser
             };
             dock.Children.Add(lbl);
             row.Child = dock;
-            row.MouseEnter += (s, e) => row.Background = Palette.MenuHot;
-            row.MouseLeave += (s, e) => row.Background = Brushes.Transparent;
-            row.MouseLeftButtonUp += (s, e) =>
+            if (enabled)
             {
-                e.Handled = true;
-                popup.IsOpen = false;
-                action();
-            };
+                row.MouseEnter += (s, e) => row.Background = Palette.MenuHot;
+                row.MouseLeave += (s, e) => row.Background = Brushes.Transparent;
+                row.MouseLeftButtonUp += (s, e) =>
+                {
+                    e.Handled = true;
+                    popup.IsOpen = false;
+                    action();
+                };
+            }
             stack.Children.Add(row);
         }
 
@@ -4309,6 +4319,9 @@ namespace SearchBrowser
         {
             StackPanel stack;
             var popup = CreateThemedPopupMenu(null, System.Windows.Controls.Primitives.PlacementMode.MousePoint, out stack);
+            string host = Address.DisplayHost(tab.Url);
+            bool isWebUrl = !string.IsNullOrEmpty(tab.Url) && tab.Url.StartsWith("http", StringComparison.OrdinalIgnoreCase);
+
             if (!tab.IsPrivate)
             {
                 if (tab.Pinned)
@@ -4319,9 +4332,27 @@ namespace SearchBrowser
                         Store.SavePrefs();
                         RefreshTabRows();
                     });
-                    AddPopupMenuItem(popup, stack, "Back to Pin Home", "Alt+Home", () =>
+                    AddPopupMenuItem(popup, stack, "Change Letter", "", () =>
                     {
-                        if (!string.IsNullOrEmpty(tab.HomeUrl)) tab.Navigate(tab.HomeUrl);
+                        string letter = PromptForText("Change Pin Letter", "Enter a single letter (leave empty to reset):", tab.CustomLetter ?? tab.PinGlyph);
+                        if (letter != null)
+                        {
+                            tab.CustomLetter = string.IsNullOrWhiteSpace(letter) ? "" : letter.Trim().Substring(0, 1).ToUpperInvariant();
+                            RefreshTabRows();
+                            SaveCurrentSession();
+                        }
+                    });
+                    bool canReplace = !string.IsNullOrEmpty(tab.Url) && !string.Equals(tab.Url, tab.HomeUrl, StringComparison.OrdinalIgnoreCase);
+                    AddPopupMenuItem(popup, stack, "Replace Pinned Page with Current URL", "", () =>
+                    {
+                        tab.HomeUrl = tab.Url;
+                        SaveCurrentSession();
+                    }, canReplace);
+                    AddPopupMenuItem(popup, stack, tab.KeepInEverySpace ? "Keep in This Space Only" : "Keep in Every Space", "", () =>
+                    {
+                        tab.KeepInEverySpace = !tab.KeepInEverySpace;
+                        RefreshTabRows();
+                        SaveCurrentSession();
                     });
                     AddPopupMenuItem(popup, stack, "Unpin", "", () =>
                     {
@@ -4329,6 +4360,7 @@ namespace SearchBrowser
                         RefreshTabRows();
                         SaveCurrentSession();
                     });
+                    AddPopupMenuItem(popup, stack, "Delete", "", () => CloseTab(tab, true));
                 }
                 else
                 {
@@ -4340,27 +4372,80 @@ namespace SearchBrowser
                         SaveCurrentSession();
                     });
                 }
+
+                if (Store.Spaces.Count > 1)
+                {
+                    AddPopupMenuItem(popup, stack, "Move to Space", "›", () =>
+                    {
+                        StackPanel spStack;
+                        var spMenu = CreateThemedPopupMenu(null, System.Windows.Controls.Primitives.PlacementMode.MousePoint, out spStack);
+                        foreach (var sp in Store.Spaces)
+                        {
+                            var capSp = sp;
+                            bool isHere = string.Equals(tab.SpaceId, capSp.Id, StringComparison.OrdinalIgnoreCase);
+                            AddPopupMenuItem(spMenu, spStack, (isHere ? "✓  " : "     ") + capSp.Name, "", () =>
+                            {
+                                tab.SpaceId = capSp.Id;
+                                tab.KeepInEverySpace = false;
+                                RefreshTabRows();
+                                SaveCurrentSession();
+                            }, !isHere);
+                        }
+                        spMenu.IsOpen = true;
+                    });
+                }
             }
+
+            AddPopupMenuItem(popup, stack, "Open in Split View", "", async () =>
+            {
+                await OpenTabInSplitViewAsync(tab, false);
+            }, tab != _activeTab);
+
+            AddPopupSeparator(stack);
+
+            AddPopupMenuItem(popup, stack, "Rename", "", () =>
+            {
+                string name = PromptForText("Rename Tab", "Tab title (leave empty to reset):", tab.CustomTitle ?? tab.DisplayTitle);
+                if (name != null)
+                {
+                    tab.CustomTitle = name.Trim();
+                    RefreshTabRows();
+                    SaveCurrentSession();
+                }
+            });
             AddPopupMenuItem(popup, stack, "Duplicate", "Ctrl+D", () =>
             {
                 CreateAndSelectTab(tab.Url, false, tab.IsPrivate, tab.GroupId, tab);
             });
-            if (tab != _activeTab)
+            AddPopupMenuItem(popup, stack, "Site Information…", "", () =>
             {
-                AddPopupMenuItem(popup, stack, "Open in Split View", "", async () =>
-                {
-                    await OpenTabInSplitViewAsync(tab, false);
-                });
-            }
+                bool isHttps = tab.Url != null && tab.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+                bool paused = Shield.IsPaused(host);
+                MessageBox.Show(
+                    "Site: " + (string.IsNullOrEmpty(host) ? tab.Url : host) +
+                    "\nConnection: " + (isHttps ? "Secure (HTTPS)" : "Standard") +
+                    "\nAd & Tracker Shield: " + (paused ? "Paused on this site" : (Store.Prefs.ShieldEnabled ? "Active" : "Off")) +
+                    "\nDark Mode (Dusk): " + (PageFeatures.IsDuskDisabledForSite(host) ? "Disabled on this site" : "Automatic"),
+                    "Site Information", MessageBoxButton.OK, MessageBoxImage.Information);
+            }, isWebUrl);
             AddPopupMenuItem(popup, stack, "Copy Address", "", () =>
             {
                 Clipboard.SetText(tab.Url ?? "");
             });
+            AddPopupMenuItem(popup, stack, "Copy as Markdown Link", "", () =>
+            {
+                Clipboard.SetText("[" + tab.DisplayTitle + "](" + (tab.Url ?? "") + ")");
+            });
+            string cleanUrl = CleanLink.Clean(tab.Url, true);
             AddPopupMenuItem(popup, stack, "Copy Clean Link", "Ctrl+Shift+C", () =>
             {
-                Clipboard.SetText(CleanLink.Clean(tab.Url, true));
+                Clipboard.SetText(cleanUrl);
+            }, isWebUrl && !string.Equals(cleanUrl, tab.Url, StringComparison.Ordinal));
+            AddPopupMenuItem(popup, stack, "Open in Side Panel", "", async () =>
+            {
+                if (tab != _activeTab) await OpenTabInSplitViewAsync(tab, false);
+                else ToggleSplitView();
             });
-            AddPopupSeparator(stack);
             AddPopupMenuItem(popup, stack, tab.IsMuted ? "Unmute Tab" : "Mute Tab", "Ctrl+Shift+M", () =>
             {
                 tab.IsMuted = !tab.IsMuted;
@@ -4369,6 +4454,23 @@ namespace SearchBrowser
                 RefreshTabRows();
                 UpdateMediaPlayerCard();
             });
+            if (!string.IsNullOrEmpty(host))
+            {
+                bool shieldPaused = Shield.IsPaused(host);
+                AddPopupMenuItem(popup, stack, shieldPaused ? "Block Ads on This Site" : "Stop Blocking Ads on This Site", "", () =>
+                {
+                    Shield.TogglePause(host);
+                    if (tab.WebView != null && tab.IsWebViewInitialized) tab.WebView.CoreWebView2.Reload();
+                });
+            }
+            AddPopupMenuItem(popup, stack, "Allow Copying on This Site", "", async () =>
+            {
+                if (tab.WebView != null && tab.IsWebViewInitialized)
+                {
+                    await tab.WebView.CoreWebView2.ExecuteScriptAsync(
+                        "(function(){var s=document.createElement('style');s.textContent='*{user-select:text!important;-webkit-user-select:text!important;}';(document.head||document.documentElement).appendChild(s);['copy','cut','selectstart','contextmenu'].forEach(function(ev){window.addEventListener(ev,function(e){e.stopPropagation();},true);});})();");
+                }
+            }, isWebUrl);
             AddPopupMenuItem(popup, stack, tab.KeepAwake ? "Allow Tab to Sleep" : "Keep This Site Awake", "", () =>
             {
                 tab.KeepAwake = !tab.KeepAwake;
@@ -4387,18 +4489,31 @@ namespace SearchBrowser
                 {
                     var other = GetTabsForActiveSpace().FirstOrDefault(t => t != tab);
                     if (other != null) await SelectTabAsync(other);
-                    else
-                    {
-                        _leftPaneHost.Child = null;
-                    }
+                    else _leftPaneHost.Child = null;
                 }
                 tab.PutToSleep();
                 RefreshTabRows();
                 SaveCurrentSession();
             });
+
             AddPopupSeparator(stack);
+
             AddPopupMenuItem(popup, stack, "Close Tab", "Ctrl+W", () => CloseTab(tab, true));
-            AddPopupMenuItem(popup, stack, "Reopen Closed Tab", "Ctrl+Shift+T", () => ReopenClosedTab());
+            var spaceUnpinned = GetTabsForActiveSpace().Where(t => !t.Pinned).ToList();
+            AddPopupMenuItem(popup, stack, "Close Other Tabs", "", () =>
+            {
+                foreach (var ot in spaceUnpinned.Where(t => t != tab).ToList()) CloseTab(ot, true);
+            }, spaceUnpinned.Count > 1);
+            int curUnpinnedIdx = spaceUnpinned.IndexOf(tab);
+            AddPopupMenuItem(popup, stack, "Close Tabs Below", "", () =>
+            {
+                if (curUnpinnedIdx >= 0)
+                {
+                    foreach (var bt in spaceUnpinned.Skip(curUnpinnedIdx + 1).ToList()) CloseTab(bt, true);
+                }
+            }, curUnpinnedIdx >= 0 && curUnpinnedIdx < spaceUnpinned.Count - 1);
+            AddPopupMenuItem(popup, stack, "Reopen Closed Tab", "Ctrl+Shift+T", () => ReopenClosedTab(), _closedTabs.Count > 0);
+
             popup.IsOpen = true;
         }
 

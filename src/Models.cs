@@ -59,6 +59,9 @@ namespace SearchBrowser
         [DataMember] public bool KeepAwake { get; set; }
         [DataMember] public string SpaceId { get; set; }
         [DataMember] public string GroupId { get; set; }
+        [DataMember] public string CustomLetter { get; set; }
+        [DataMember] public string CustomTitle { get; set; }
+        [DataMember] public bool KeepInEverySpace { get; set; }
     }
 
     [DataContract]
