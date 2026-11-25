@@ -174,10 +174,15 @@ namespace SearchBrowser
                 {
                     _sharedPrivateDataDir = Path.Combine(Path.GetTempPath(), "SearchBrowser_PrivSession_" + Guid.NewGuid().ToString("N"));
                     _sharedPrivateSeed = new Random(Guid.NewGuid().GetHashCode()).Next(1000, 999999);
-                    string pArgs = "--enable-smooth-scrolling --disable-background-networking --disable-features=InterestFeedContentSuggestions,OptimizationHints,MediaRouter,PrivacySandboxAdsAPIsOverride,BrowsingTopics,AttributionReportingCrossAppWeb";
+                    string pArgs = "--enable-smooth-scrolling --renderer-process-limit=3 --js-flags=--max-old-space-size=192 --disk-cache-size=33554432 --media-cache-size=33554432 --disable-background-networking --disable-component-update --disable-domain-reliability --disable-breakpad --disable-sync --disable-default-apps --disable-translate --disable-speech-api --disable-print-preview --disable-features=InterestFeedContentSuggestions,OptimizationHints,MediaRouter,PrivacySandboxAdsAPIsOverride,BrowsingTopics,AttributionReportingCrossAppWeb,msEdgeCollections,msEdgeSidebarV2,msEdgeDiscover,msEdgeShopping,msEdgeHistorySync,msEdgeAutofill,PreloadMediaEngagementData";
                     if (Store.Prefs != null && Store.Prefs.BlockWebRtcLeaks)
                         pArgs += " --force-webrtc-ip-handling-policy=disable_non_proxied_udp";
-                    var pOpts = new CoreWebView2EnvironmentOptions { AdditionalBrowserArguments = pArgs };
+                    var pOpts = new CoreWebView2EnvironmentOptions
+                    {
+                        AdditionalBrowserArguments = pArgs,
+                        AllowSingleSignOnUsingOSPrimaryAccount = false,
+                        AreBrowserExtensionsEnabled = false
+                    };
                     _sharedPrivateEnv = await CoreWebView2Environment.CreateAsync(null, _sharedPrivateDataDir, pOpts);
                 }
                 _privateDataDir = _sharedPrivateDataDir;
@@ -525,9 +530,51 @@ namespace SearchBrowser
             else
             {
                 RenderBlankWall();
+                try { core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low; } catch { }
             }
 
             NotifyChanged();
+        }
+
+        public void SetBackgroundMemoryState(bool isBackground)
+        {
+            if (WebView == null || !IsWebViewInitialized || WebView.CoreWebView2 == null) return;
+            try
+            {
+                var core = WebView.CoreWebView2;
+                if (!isBackground)
+                {
+                    WebView.Visibility = Visibility.Visible;
+                    if (core.IsSuspended) core.Resume();
+                    core.MemoryUsageTargetLevel = (Url == "about:blank")
+                        ? CoreWebView2MemoryUsageTargetLevel.Low
+                        : CoreWebView2MemoryUsageTargetLevel.Normal;
+                    Touch();
+                }
+                else if (!KeepAwake && !IsAudible)
+                {
+                    core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low;
+                    WebView.Visibility = Visibility.Hidden;
+                }
+            }
+            catch { }
+        }
+
+        public async Task TrySuspendIfBackgroundAsync()
+        {
+            if (WebView == null || !IsWebViewInitialized || WebView.CoreWebView2 == null) return;
+            if (KeepAwake || IsAudible || IsSleeping) return;
+            try
+            {
+                var core = WebView.CoreWebView2;
+                core.MemoryUsageTargetLevel = CoreWebView2MemoryUsageTargetLevel.Low;
+                WebView.Visibility = Visibility.Hidden;
+                if (!core.IsSuspended)
+                {
+                    await core.TrySuspendAsync();
+                }
+            }
+            catch { }
         }
 
         private async Task TryLoadExtensionsAsync(CoreWebView2 core)

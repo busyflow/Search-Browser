@@ -242,7 +242,7 @@ namespace SearchBrowser
             SizeChanged += (s, e) => { RepositionFindPopup(); RepositionSplitClosePopup(); };
             DownloadsUpdated += () => Dispatcher.InvokeAsync(() => UpdateFooterButtons());
 
-            _sleepTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+            _sleepTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
             _sleepTimer.Tick += (s, e) => CheckTabAutoSleep();
             _sleepTimer.Start();
 
@@ -1437,6 +1437,19 @@ namespace SearchBrowser
         private static extern short GetAsyncKeyState(int vKey);
         [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto, SetLastError = true)]
         private static extern IntPtr GetModuleHandle(string lpModuleName);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern IntPtr GetCurrentProcess();
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern bool SetProcessWorkingSetSize(IntPtr proc, IntPtr min, IntPtr max);
+
+        private static void TrimProcessWorkingSet()
+        {
+            try
+            {
+                SetProcessWorkingSetSize(GetCurrentProcess(), (IntPtr)(-1), (IntPtr)(-1));
+            }
+            catch { }
+        }
 
         private IntPtr _mainHwnd = IntPtr.Zero;
         private IntPtr _kbHookId = IntPtr.Zero;
@@ -1704,6 +1717,16 @@ namespace SearchBrowser
                 string path = WindowState == WindowState.Maximized ? VectorIcons.WinRestorePath : VectorIcons.WinMaximizePath;
                 _maxBtn.Child = VectorIcons.Draw(path, Palette.Muted, 12, 1.45);
             }
+            if (WindowState == WindowState.Minimized)
+            {
+                foreach (var t in _allTabs)
+                {
+                    if (!t.IsAudible && !t.KeepAwake) t.SetBackgroundMemoryState(true);
+                }
+                TrimProcessWorkingSet();
+                return;
+            }
+            if (_activeTab != null) _activeTab.SetBackgroundMemoryState(false);
             ApplyRoundedCornersToHost(_leftPaneHost);
             ApplyRoundedCornersToHost(_rightPaneHost);
         }
@@ -2048,19 +2071,20 @@ namespace SearchBrowser
             _rightPaneHost.SizeChanged += (s2, e2) => ApplyRoundedCornersToHost(_rightPaneHost);
             try
             {
-                string browserArgs = "--enable-smooth-scrolling --disable-background-networking --disable-features=InterestFeedContentSuggestions,OptimizationHints,MediaRouter,PrivacySandboxAdsAPIsOverride,BrowsingTopics,AttributionReportingCrossAppWeb";
+                // Ultra-lean Chromium/WebView2 memory profile:
+                // - Cap renderer process pool to 3 (same-site & duplicate tabs share renderers instead of spawning 100MB/tab!)
+                // - Cap V8 old-space & disk/media caches so idle memory doesn't balloon
+                // - Disable hidden Edge background utility services (Collections, Sidebar, Discover, Shopping, Sync, Breakpad)
+                // - Only enable Extension utility process if the user actually has extensions installed
+                string browserArgs = "--enable-smooth-scrolling --renderer-process-limit=3 --js-flags=--max-old-space-size=192 --disk-cache-size=33554432 --media-cache-size=33554432 --disable-background-networking --disable-component-update --disable-domain-reliability --disable-breakpad --disable-sync --disable-default-apps --disable-translate --disable-speech-api --disable-print-preview --disable-features=InterestFeedContentSuggestions,OptimizationHints,MediaRouter,PrivacySandboxAdsAPIsOverride,BrowsingTopics,AttributionReportingCrossAppWeb,msEdgeCollections,msEdgeSidebarV2,msEdgeDiscover,msEdgeShopping,msEdgeHistorySync,msEdgeAutofill,PreloadMediaEngagementData";
                 if (Store.Prefs != null && Store.Prefs.BlockWebRtcLeaks)
                     browserArgs += " --force-webrtc-ip-handling-policy=disable_non_proxied_udp";
                 var options = new CoreWebView2EnvironmentOptions
                 {
-                    AdditionalBrowserArguments = browserArgs
+                    AdditionalBrowserArguments = browserArgs,
+                    AllowSingleSignOnUsingOSPrimaryAccount = false,
+                    AreBrowserExtensionsEnabled = (Store.Extensions != null && Store.Extensions.Count > 0)
                 };
-                try
-                {
-                    var prop = options.GetType().GetProperty("AreBrowserExtensionsEnabled");
-                    if (prop != null) prop.SetValue(options, true, null);
-                }
-                catch { }
 
                 _sharedEnv = await CoreWebView2Environment.CreateAsync(null, Store.WebViewDataDir, options);
             }
@@ -2106,6 +2130,8 @@ namespace SearchBrowser
             await SelectTabAsync(toSelect);
             RefreshSpaceHeader();
             RefreshTabRows();
+            await Task.Delay(1500);
+            TrimProcessWorkingSet();
         }
 
         private static void SafeSetClipboardText(string text)
@@ -2179,13 +2205,29 @@ namespace SearchBrowser
             return _allTabs.Where(t => t.KeepInEverySpace || string.Equals(t.SpaceId, sp, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
+        private DispatcherTimer _refreshCoalesceTimer;
+        private void ScheduleRefreshTabRows()
+        {
+            if (_refreshCoalesceTimer == null)
+            {
+                _refreshCoalesceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(45) };
+                _refreshCoalesceTimer.Tick += (s, e) =>
+                {
+                    _refreshCoalesceTimer.Stop();
+                    RefreshTabRows();
+                };
+            }
+            if (!_refreshCoalesceTimer.IsEnabled)
+                _refreshCoalesceTimer.Start();
+        }
+
         private void AttachTabEvents(BrowserTab tab)
         {
             tab.StateChanged += t =>
             {
                 Dispatcher.InvokeAsync(() =>
                 {
-                    RefreshTabRows();
+                    ScheduleRefreshTabRows();
                     UpdateMediaPlayerCard();
                     if (t == _activeTab)
                     {
@@ -3026,7 +3068,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0015";
+            const string currentVersion = "0.0016";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -3224,6 +3266,7 @@ namespace SearchBrowser
         public async Task SelectTabAsync(BrowserTab tab)
         {
             if (tab == null) return;
+            var prevActive = _activeTab;
             Border targetHost = _leftPaneHost;
             if (_isSplitView && _activeTab == _splitRightTab && tab != _splitLeftTab) targetHost = _rightPaneHost;
             else if (_isSplitView && tab == _splitRightTab) targetHost = _rightPaneHost;
@@ -3234,11 +3277,13 @@ namespace SearchBrowser
             {
                 if (_activeTab == _splitRightTab && tab != _splitLeftTab)
                 {
+                    if (_splitRightTab != null && _splitRightTab != tab) _splitRightTab.SetBackgroundMemoryState(true);
                     _splitRightTab = tab;
                     _rightPaneHost.Child = tab.WebView;
                 }
                 else if (tab != _splitRightTab)
                 {
+                    if (_splitLeftTab != null && _splitLeftTab != tab) _splitLeftTab.SetBackgroundMemoryState(true);
                     _splitLeftTab = tab;
                     _leftPaneHost.Child = tab.WebView;
                 }
@@ -3247,10 +3292,12 @@ namespace SearchBrowser
             }
             else
             {
+                if (prevActive != null && prevActive != tab) prevActive.SetBackgroundMemoryState(true);
                 _activeTab = tab;
                 _splitLeftTab = tab;
                 _leftPaneHost.Child = tab.WebView;
             }
+            tab.SetBackgroundMemoryState(false);
             Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
             {
                 ApplyRoundedCornersToHost(_leftPaneHost);
@@ -3331,7 +3378,8 @@ namespace SearchBrowser
             _mruTabs.Remove(tab);
             if (tab.IsPrivate && !_allTabs.Any(t => t.IsPrivate))
                 BrowserTab.CleanupSharedPrivateSession();
-            try { if (tab.WebView != null) tab.WebView.Dispose(); } catch { }
+            try { if (tab.WebView != null) { tab.WebView.Visibility = Visibility.Collapsed; tab.WebView.Dispose(); } } catch { }
+            TrimProcessWorkingSet();
 
             var spaceTabs = GetTabsForActiveSpace();
             if (spaceTabs.Count == 0)
@@ -3493,8 +3541,21 @@ namespace SearchBrowser
             }
         }
 
-        private void CheckTabAutoSleep()
+        private async void CheckTabAutoSleep()
         {
+            // Stage 1: Native WebView2 TrySuspendAsync after 30s in background (0ms resume, near-zero CPU/RAM!)
+            DateTime suspendCutoff = DateTime.UtcNow.AddSeconds(-30);
+            foreach (var tab in _allTabs.ToList())
+            {
+                if (tab != _activeTab && tab != _splitLeftTab && tab != _splitRightTab &&
+                    !tab.KeepAwake && !tab.IsSleeping && !tab.IsAudible && tab.IsWebViewInitialized &&
+                    tab.LastTouchedUtc < suspendCutoff)
+                {
+                    await tab.TrySuspendIfBackgroundAsync();
+                }
+            }
+
+            // Stage 2: Full PutToSleep (WebView disposal) after AutoSleepMinutes
             int mins = Store.Prefs.AutoSleepMinutes;
             if (Store.Prefs.EnergySaver && mins > 10) mins = 10;
             if (mins > 0 && mins < 90000)
@@ -3858,6 +3919,8 @@ namespace SearchBrowser
             RefreshTabRows();
         }
 
+        private static readonly Dictionary<string, BitmapImage> _faviconCache = new Dictionary<string, BitmapImage>(StringComparer.OrdinalIgnoreCase);
+
         private UIElement CreateFaviconOrGlyph(BrowserTab tab, double size, bool boxedLetter = false, Brush letterBrush = null)
         {
             if (tab.IsPrivate)
@@ -3869,12 +3932,18 @@ namespace SearchBrowser
             {
                 try
                 {
-                    var bmp = new BitmapImage();
-                    bmp.BeginInit();
-                    bmp.UriSource = new Uri(tab.FaviconUrl);
-                    bmp.DecodePixelWidth = (int)(size * 2);
-                    bmp.CacheOption = BitmapCacheOption.OnLoad;
-                    bmp.EndInit();
+                    BitmapImage bmp;
+                    if (!_faviconCache.TryGetValue(tab.FaviconUrl, out bmp))
+                    {
+                        if (_faviconCache.Count > 200) _faviconCache.Clear();
+                        bmp = new BitmapImage();
+                        bmp.BeginInit();
+                        bmp.UriSource = new Uri(tab.FaviconUrl);
+                        bmp.DecodePixelWidth = 32;
+                        bmp.CacheOption = BitmapCacheOption.OnLoad;
+                        bmp.EndInit();
+                        _faviconCache[tab.FaviconUrl] = bmp;
+                    }
                     return new Image
                     {
                         Source = bmp,
