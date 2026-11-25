@@ -1798,7 +1798,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0003";
+            const string currentVersion = "0.0004";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -2284,15 +2284,15 @@ namespace SearchBrowser
                 bool isLive = pin == _activeTab || (_isSplitView && (pin == _splitLeftTab || pin == _splitRightTab));
                 var sq = new Border
                 {
-                    Width = 36,
-                    Height = 36,
-                    Margin = new Thickness(2),
-                    CornerRadius = new CornerRadius(7),
-                    Background = isLive ? Palette.Wash : Brushes.Transparent,
+                    Width = 48,
+                    Height = 34,
+                    Margin = new Thickness(0, 0, 4, 4),
+                    CornerRadius = new CornerRadius(9),
+                    Background = isLive ? Palette.Wash : Palette.Hover,
                     BorderBrush = isLive ? Palette.Hairline : Brushes.Transparent,
                     BorderThickness = new Thickness(1),
                     Cursor = Cursors.Hand,
-                    ToolTip = pin.DisplayTitle + " (External links open in Peek · Right-click to unpin)"
+                    ToolTip = pin.DisplayTitle + " (Right-click for options)"
                 };
                 sq.Child = CreateFaviconOrGlyph(pin, 16);
                 var captured = pin;
@@ -4540,7 +4540,7 @@ namespace SearchBrowser
             };
             b.MouseEnter += (s, e) => b.Background = Palette.Hover;
             b.MouseLeave += (s, e) => b.Background = Palette.Wash;
-            b.MouseLeftButtonDown += (s, e) =>
+            b.MouseLeftButtonUp += (s, e) =>
             {
                 e.Handled = true;
                 onClick();
@@ -4569,7 +4569,7 @@ namespace SearchBrowser
             WindowChrome.SetIsHitTestVisibleInChrome(b, true);
             b.MouseEnter += (s, e) => b.Background = Palette.Hover;
             b.MouseLeave += (s, e) => b.Background = Brushes.Transparent;
-            b.MouseLeftButtonDown += (s, e) =>
+            b.MouseLeftButtonUp += (s, e) =>
             {
                 e.Handled = true;
                 onClick();
@@ -4593,7 +4593,7 @@ namespace SearchBrowser
             WindowChrome.SetIsHitTestVisibleInChrome(b, true);
             b.MouseEnter += (s, e) => b.Background = Palette.Hover;
             b.MouseLeave += (s, e) => b.Background = Brushes.Transparent;
-            b.MouseLeftButtonDown += (s, e) =>
+            b.MouseLeftButtonUp += (s, e) =>
             {
                 e.Handled = true;
                 onClick();
@@ -4624,7 +4624,7 @@ namespace SearchBrowser
             WindowChrome.SetIsHitTestVisibleInChrome(b, true);
             b.MouseEnter += (s, e) => b.Background = Palette.Hover;
             b.MouseLeave += (s, e) => b.Background = Brushes.Transparent;
-            b.MouseLeftButtonDown += (s, e) =>
+            b.MouseLeftButtonUp += (s, e) =>
             {
                 e.Handled = true;
                 onClick();
