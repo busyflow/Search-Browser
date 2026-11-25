@@ -1612,6 +1612,19 @@ namespace SearchBrowser
             e.Handled = true;
         }
 
+        private void SetWindowBorderColor()
+        {
+            try
+            {
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                if (hwnd == IntPtr.Zero) return;
+                // DWMWA_BORDER_COLOR (34), COLORREF = 0x00BBGGRR
+                int colorRef = Palette.IsDark ? 0x00262626 : 0x00E0E0E0;
+                DwmSetWindowAttribute(hwnd, 34, ref colorRef, sizeof(int));
+            }
+            catch { }
+        }
+
         private async void OnWindowLoaded(object sender, RoutedEventArgs e)
         {
             try
@@ -1619,6 +1632,7 @@ namespace SearchBrowser
                 var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
                 int pref = 2; // DWMWCP_ROUND
                 DwmSetWindowAttribute(hwnd, 33, ref pref, sizeof(int));
+                SetWindowBorderColor();
             }
             catch { }
             _leftPaneHost.SizeChanged += (s2, e2) => ApplyRoundedCornersToHost(_leftPaneHost);
@@ -3169,6 +3183,7 @@ namespace SearchBrowser
         private void ApplyLayoutPreferences(bool reloadSettingsTabs = true)
         {
             Palette.ResolveTheme();
+            SetWindowBorderColor();
             Background = Palette.Frame;
             _sidebarBorder.Background = Palette.Frame;
             if (_glidingTabPill != null)
