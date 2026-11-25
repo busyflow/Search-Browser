@@ -1143,11 +1143,7 @@ namespace SearchBrowser
             _findInput.CaretBrush = Palette.Ink;
             RepositionFindPopup();
             _findPopup.IsOpen = true;
-            Dispatcher.InvokeAsync(() =>
-            {
-                _findInput.Focus();
-                _findInput.SelectAll();
-            }, DispatcherPriority.Input);
+            FocusPopupControl(_findInput, true);
         }
 
         private void HideFindBar()
@@ -1389,6 +1385,47 @@ namespace SearchBrowser
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SetFocus(IntPtr hWnd);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        private sealed class Win32OwnerWindow : System.Windows.Forms.IWin32Window
+        {
+            private readonly IntPtr _hwnd;
+            public Win32OwnerWindow(IntPtr hwnd) { _hwnd = hwnd; }
+            public IntPtr Handle { get { return _hwnd; } }
+        }
+
+        private Win32OwnerWindow GetWin32Owner()
+        {
+            return new Win32OwnerWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle);
+        }
+
+        // Transfers Win32 HWND focus OUT of WebView2's HwndHost into a WPF Popup control (fixes Ctrl+T / Ctrl+L / Ctrl+F / Bookmarks typing!)
+        private void FocusPopupControl(UIElement el, bool selectAll = false)
+        {
+            if (el == null) return;
+            Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+            {
+                try
+                {
+                    var src = PresentationSource.FromVisual(el) as System.Windows.Interop.HwndSource;
+                    if (src != null && src.Handle != IntPtr.Zero)
+                    {
+                        SetForegroundWindow(src.Handle);
+                        SetFocus(src.Handle);
+                    }
+                    el.Focus();
+                    Keyboard.Focus(el);
+                    var tb = el as TextBox;
+                    if (tb != null && selectAll) tb.SelectAll();
+                }
+                catch { }
+            }));
+        }
 
         private void ApplyRoundedCornersToHost(Border host)
         {
@@ -1953,11 +1990,14 @@ namespace SearchBrowser
                 string action = ExtractJsonValue(json, "action");
                 string arg = ExtractJsonValue(json, "arg");
                 string sec = ExtractJsonValue(json, "sec");
-                await HandleSettingsTabActionAsync(tab, action, arg, string.IsNullOrEmpty(sec) ? "general" : sec);
+                int scrollY = 0;
+                var sm = Regex.Match(json, "\"scrollY\"\\s*:\\s*(\\d+)");
+                if (sm.Success) int.TryParse(sm.Groups[1].Value, out scrollY);
+                await HandleSettingsTabActionAsync(tab, action, arg, string.IsNullOrEmpty(sec) ? "general" : sec, scrollY);
             }
         }
 
-        private async Task HandleSettingsTabActionAsync(BrowserTab settingsTab, string action, string arg, string sec = "general")
+        private async Task HandleSettingsTabActionAsync(BrowserTab settingsTab, string action, string arg, string sec = "general", int scrollY = 0)
         {
             switch (action)
             {
@@ -1977,8 +2017,7 @@ namespace SearchBrowser
                                 Store.Prefs.PinsOpenExternalInPeek = !cur;
                             }
                             Store.SavePrefs();
-                            ApplyLayoutPreferences();
-                            settingsTab.RenderSettingsTab(sec);
+                            ApplyLayoutPreferences(false);
                         }
                     }
                     break;
@@ -2010,64 +2049,113 @@ namespace SearchBrowser
                                     Store.Prefs.PeekEnabled = !string.Equals(pVal, "Off", StringComparison.OrdinalIgnoreCase);
                                 }
                                 Store.SavePrefs();
-                                ApplyLayoutPreferences();
-                                settingsTab.RenderSettingsTab(sec);
+                                ApplyLayoutPreferences(false);
+                                settingsTab.RenderSettingsTab(sec, scrollY);
                             }
                         }
                     }
+                    break;
+                case "saveHomeTheme":
+                case "saveHomeThemeReload":
+                    {
+                        string themeId = ExtractJsonValue(arg ?? "", "theme");
+                        bool shuf = (arg ?? "").Contains("\"shuffle\":true");
+                        var tm = Regex.Match(arg ?? "", "\"tuning\"\\s*:\\s*(\\{[^}]*\\})");
+                        if (!string.IsNullOrEmpty(themeId)) Store.Prefs.HomeThemeId = themeId;
+                        if (tm.Success) Store.Prefs.HomeTuningJson = tm.Groups[1].Value;
+                        Store.Prefs.HomeShuffle = shuf;
+                        Store.SavePrefs();
+                        foreach (var bt in _allTabs)
+                        {
+                            if (bt.Url == "about:blank" && bt.IsWebViewInitialized) bt.RenderBlankWall();
+                        }
+                        if (action == "saveHomeThemeReload") settingsTab.RenderSettingsTab("themes", scrollY);
+                    }
+                    break;
+                case "removeBgImage":
+                    HomeThemesJs.RemoveCustomImageCopy();
+                    Store.Prefs.HomeImagePath = "";
+                    Store.Prefs.BlankWallCustomValue = "";
+                    if (Store.Prefs.HomeThemeId == "custom") Store.Prefs.HomeThemeId = "off";
+                    Store.SavePrefs();
+                    foreach (var bt in _allTabs) { if (bt.Url == "about:blank" && bt.IsWebViewInitialized) bt.RenderBlankWall(); }
+                    settingsTab.RenderSettingsTab("themes", scrollY);
                     break;
                 case "chooseDownloadsFolder":
-                    using (var fbd = new System.Windows.Forms.FolderBrowserDialog())
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
                     {
-                        fbd.Description = "Choose default Downloads folder:";
-                        if (fbd.ShowDialog() == System.Windows.Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                        using (var fbd = new System.Windows.Forms.FolderBrowserDialog())
                         {
-                            Store.Prefs.DownloadsFolder = fbd.SelectedPath;
-                            Store.SavePrefs();
-                            settingsTab.RenderSettingsTab("general");
-                        }
-                    }
-                    break;
-                case "chooseBgImage":
-                    using (var ofd = new System.Windows.Forms.OpenFileDialog())
-                    {
-                        ofd.Filter = "Images|*.png;*.jpg;*.jpeg;*.webp;*.bmp";
-                        if (ofd.ShowDialog() == System.Windows.Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(ofd.FileName))
-                        {
-                            Store.Prefs.BlankWallMode = "Image";
-                            Store.Prefs.BlankWallCustomValue = ofd.FileName;
-                            Store.SavePrefs();
-                            ApplyLayoutPreferences();
-                            settingsTab.RenderSettingsTab("themes");
-                        }
-                    }
-                    break;
-                case "loadUnpackedExt":
-                    using (var fbd = new System.Windows.Forms.FolderBrowserDialog())
-                    {
-                        fbd.Description = "Select unpacked extension folder containing manifest.json:";
-                        if (fbd.ShowDialog() == System.Windows.Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
-                        {
-                            try
+                            fbd.Description = "Choose default Downloads folder:";
+                            string curDl = Store.Prefs.DownloadsFolder;
+                            if (!string.IsNullOrWhiteSpace(curDl) && !curDl.StartsWith("~") && Directory.Exists(curDl))
+                                fbd.SelectedPath = curDl;
+                            if (fbd.ShowDialog(GetWin32Owner()) == System.Windows.Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
                             {
-                                var info = CrxInstaller.RegisterUnpackedFolder(fbd.SelectedPath);
-                                if (settingsTab.WebView != null && settingsTab.IsWebViewInitialized)
+                                Store.Prefs.DownloadsFolder = fbd.SelectedPath;
+                                Store.SavePrefs();
+                                foreach (var t in _allTabs)
                                 {
-                                    var method = settingsTab.WebView.CoreWebView2.Profile.GetType().GetMethod("AddBrowserExtensionAsync");
-                                    if (method != null)
+                                    if (t.WebView != null && t.IsWebViewInitialized && t.WebView.CoreWebView2 != null)
                                     {
-                                        dynamic task = method.Invoke(settingsTab.WebView.CoreWebView2.Profile, new object[] { info.FolderPath });
-                                        if (task != null) await task;
+                                        try { t.WebView.CoreWebView2.Profile.DefaultDownloadFolderPath = fbd.SelectedPath; } catch { }
                                     }
                                 }
-                                settingsTab.RenderSettingsTab("extensions");
-                            }
-                            catch (Exception ex)
-                            {
-                                MessageBox.Show("Could not load unpacked extension: " + ex.Message, "Search Extensions", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                settingsTab.RenderSettingsTab("general", scrollY);
                             }
                         }
-                    }
+                    }));
+                    break;
+                case "chooseBgImage":
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                    {
+                        using (var ofd = new System.Windows.Forms.OpenFileDialog())
+                        {
+                            ofd.Title = "Choose Home Background Image";
+                            ofd.Filter = "Images|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif";
+                            if (ofd.ShowDialog(GetWin32Owner()) == System.Windows.Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(ofd.FileName))
+                            {
+                                string copied = HomeThemesJs.SaveCustomImageCopy(ofd.FileName);
+                                Store.Prefs.HomeImagePath = copied;
+                                Store.Prefs.HomeThemeId = "custom";
+                                Store.Prefs.BlankWallMode = "Image";
+                                Store.Prefs.BlankWallCustomValue = copied;
+                                Store.SavePrefs();
+                                foreach (var bt in _allTabs) { if (bt.Url == "about:blank" && bt.IsWebViewInitialized) bt.RenderBlankWall(); }
+                                settingsTab.RenderSettingsTab("themes", scrollY);
+                            }
+                        }
+                    }));
+                    break;
+                case "loadUnpackedExt":
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(async () =>
+                    {
+                        using (var fbd = new System.Windows.Forms.FolderBrowserDialog())
+                        {
+                            fbd.Description = "Select unpacked extension folder containing manifest.json:";
+                            if (fbd.ShowDialog(GetWin32Owner()) == System.Windows.Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                            {
+                                try
+                                {
+                                    var info = CrxInstaller.RegisterUnpackedFolder(fbd.SelectedPath);
+                                    if (settingsTab.WebView != null && settingsTab.IsWebViewInitialized)
+                                    {
+                                        var method = settingsTab.WebView.CoreWebView2.Profile.GetType().GetMethod("AddBrowserExtensionAsync");
+                                        if (method != null)
+                                        {
+                                            dynamic task = method.Invoke(settingsTab.WebView.CoreWebView2.Profile, new object[] { info.FolderPath });
+                                            if (task != null) await task;
+                                        }
+                                    }
+                                    settingsTab.RenderSettingsTab("extensions", scrollY);
+                                }
+                                catch (Exception ex)
+                                {
+                                    MessageBox.Show("Could not load unpacked extension: " + ex.Message, "Search Extensions", MessageBoxButton.OK, MessageBoxImage.Warning);
+                                }
+                            }
+                        }
+                    }));
                     break;
                 case "clearCookies":
                     if (settingsTab.WebView != null && settingsTab.IsWebViewInitialized)
@@ -2143,17 +2231,20 @@ namespace SearchBrowser
                     ShowImportDrawer();
                     break;
                 case "chooseSyncFolder":
-                    using (var fbd = new System.Windows.Forms.FolderBrowserDialog())
+                    Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
                     {
-                        fbd.Description = "Choose a shared folder (OneDrive, Dropbox, or iCloud) for Search Sync:";
-                        if (fbd.ShowDialog() == System.Windows.Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                        using (var fbd = new System.Windows.Forms.FolderBrowserDialog())
                         {
-                            Store.Prefs.SyncFolderPath = fbd.SelectedPath;
-                            Store.SavePrefs();
-                            FolderSync.InitializeWatcher(() => Dispatcher.InvokeAsync(() => RefreshTabRows()));
-                            settingsTab.RenderSettingsTab("general");
+                            fbd.Description = "Choose a shared folder (OneDrive, Dropbox, or iCloud) for Search Sync:";
+                            if (fbd.ShowDialog(GetWin32Owner()) == System.Windows.Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                            {
+                                Store.Prefs.SyncFolderPath = fbd.SelectedPath;
+                                Store.SavePrefs();
+                                FolderSync.InitializeWatcher(() => Dispatcher.InvokeAsync(() => RefreshTabRows()));
+                                settingsTab.RenderSettingsTab("general", scrollY);
+                            }
                         }
-                    }
+                    }));
                     break;
                 case "openDownloadsFolder":
                     try
@@ -2181,26 +2272,26 @@ namespace SearchBrowser
                 case "setLook":
                     Store.Prefs.Appearance = string.IsNullOrEmpty(arg) ? "System" : arg;
                     Store.SavePrefs();
-                    ApplyLayoutPreferences();
-                    settingsTab.RenderSettingsTab("appearance");
+                    ApplyLayoutPreferences(false);
+                    settingsTab.RenderSettingsTab("appearance", scrollY);
                     break;
                 case "toggleDusk":
                     Store.Prefs.DuskEnabled = !Store.Prefs.DuskEnabled;
                     Store.SavePrefs();
-                    ApplyLayoutPreferences();
-                    settingsTab.RenderSettingsTab("appearance");
+                    ApplyLayoutPreferences(false);
+                    settingsTab.RenderSettingsTab("appearance", scrollY);
                     break;
                 case "setTabLayout":
                     Store.Prefs.TabLayout = string.IsNullOrEmpty(arg) ? "Left" : arg;
                     Store.SavePrefs();
-                    ApplyLayoutPreferences();
-                    settingsTab.RenderSettingsTab("appearance");
+                    ApplyLayoutPreferences(false);
+                    settingsTab.RenderSettingsTab("appearance", scrollY);
                     break;
                 case "toggleFold":
                     Store.Prefs.SidebarCollapsed = !Store.Prefs.SidebarCollapsed;
                     Store.SavePrefs();
-                    ApplyLayoutPreferences();
-                    settingsTab.RenderSettingsTab("appearance");
+                    ApplyLayoutPreferences(false);
+                    settingsTab.RenderSettingsTab("appearance", scrollY);
                     break;
                 case "setWall":
                     Store.Prefs.BlankWallTheme = string.IsNullOrEmpty(arg) ? "Clean" : arg;
@@ -2386,7 +2477,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0009";
+            const string currentVersion = "0.0010";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -3019,7 +3110,7 @@ namespace SearchBrowser
                 _topTabBarBorder.Padding = classic ? new Thickness(10, 0, 0, 0) : new Thickness(10, 0, 10, 0);
         }
 
-        private void ApplyLayoutPreferences()
+        private void ApplyLayoutPreferences(bool reloadSettingsTabs = true)
         {
             Palette.ResolveTheme();
             Background = Palette.Frame;
@@ -3121,9 +3212,9 @@ namespace SearchBrowser
                         ? CoreWebView2PreferredColorScheme.Dark
                         : CoreWebView2PreferredColorScheme.Light;
                     if (t.Url == "about:blank") t.RenderBlankWall();
-                    else if (t.Url != null && t.Url.StartsWith("search://settings", StringComparison.OrdinalIgnoreCase)) t.RenderSettingsTab();
-                    else if (t.Url != null && t.Url.StartsWith("search://history", StringComparison.OrdinalIgnoreCase)) t.RenderHistoryTab();
-                    else { var _ = t.ApplySiteStyleSheetsAsync(); }
+                    else if (reloadSettingsTabs && t.Url != null && t.Url.StartsWith("search://settings", StringComparison.OrdinalIgnoreCase)) t.RenderSettingsTab();
+                    else if (reloadSettingsTabs && t.Url != null && t.Url.StartsWith("search://history", StringComparison.OrdinalIgnoreCase)) t.RenderHistoryTab();
+                    else if (t.Url != null && !t.Url.StartsWith("search://", StringComparison.OrdinalIgnoreCase)) { var _ = t.ApplySiteStyleSheetsAsync(); }
                 }
             }
 
@@ -3224,94 +3315,85 @@ namespace SearchBrowser
             var unpinned = spaceTabs.Where(t => !t.Pinned).ToList();
             bool isIconsOnly = string.Equals(Store.Prefs.TabLayout, "IconsOnly", StringComparison.OrdinalIgnoreCase);
 
-            // 1. Pinned squares in sidebar (Oriel Pins.tsx: dynamic 3/4 col width, FrameTile/FrameHover/FramePinLive, zero border, optional unread badge)
+            // 1. Pinned squares in sidebar (ALWAYS visible at top so pins & drop-ghost are never hidden!)
             if (_pinsDivider != null)
             {
                 _pinsDivider.Visibility = (pinned.Count > 0 && Store.Prefs.PinnedRows && !isIconsOnly) ? Visibility.Visible : Visibility.Collapsed;
             }
 
-            if (Store.Prefs.PinnedRows && !isIconsOnly)
+            _pinsPanel.Visibility = Visibility.Visible;
+            double cellW = GetDynamicPinCellWidth(pinned.Count);
+            foreach (var pin in pinned)
             {
-                _pinsPanel.Visibility = Visibility.Collapsed;
-                foreach (var pin in pinned)
+                bool isLive = pin == _activeTab || (_isSplitView && (pin == _splitLeftTab || pin == _splitRightTab));
+                var sq = new Border
                 {
-                    _tabsStack.Children.Add(CreateVerticalTabRow(pin, false, -1));
-                }
-            }
-            else
-            {
-                _pinsPanel.Visibility = Visibility.Visible;
-                double cellW = GetDynamicPinCellWidth(pinned.Count);
-                foreach (var pin in pinned)
+                    Tag = pin,
+                    Width = cellW,
+                    Height = isIconsOnly ? 32 : 34,
+                    Margin = new Thickness(0, 0, 4, 4),
+                    CornerRadius = new CornerRadius(9),
+                    Background = isLive ? Palette.FramePinLive : Palette.FrameTile,
+                    BorderBrush = isLive ? Palette.InkPickedOutline : Brushes.Transparent,
+                    BorderThickness = new Thickness(isLive ? 1 : 0),
+                    Cursor = Cursors.Hand,
+                    ToolTip = pin.DisplayTitle + "\n" + pin.Url
+                };
+                var pinGrid = new Grid();
+                pinGrid.Children.Add(CreateFaviconOrGlyph(pin, 16, false));
+                if (Store.Prefs.ShowCountsOnPins)
                 {
-                    bool isLive = pin == _activeTab || (_isSplitView && (pin == _splitLeftTab || pin == _splitRightTab));
-                    var sq = new Border
+                    string badge = ExtractUnreadBadge(pin.Title);
+                    if (!string.IsNullOrEmpty(badge))
                     {
-                        Tag = pin,
-                        Width = cellW,
-                        Height = isIconsOnly ? 32 : 34,
-                        Margin = new Thickness(0, 0, 4, 4),
-                        CornerRadius = new CornerRadius(9),
-                        Background = isLive ? Palette.FramePinLive : Palette.FrameTile,
-                        Cursor = Cursors.Hand,
-                        ToolTip = pin.DisplayTitle + "\n" + pin.Url
-                    };
-                    var pinGrid = new Grid();
-                    pinGrid.Children.Add(CreateFaviconOrGlyph(pin, 16, false));
-                    if (Store.Prefs.ShowCountsOnPins)
-                    {
-                        string badge = ExtractUnreadBadge(pin.Title);
-                        if (!string.IsNullOrEmpty(badge))
+                        pinGrid.Children.Add(new Border
                         {
-                            pinGrid.Children.Add(new Border
-                            {
-                                Background = Palette.UnreadRed,
-                                CornerRadius = new CornerRadius(7),
-                                Padding = new Thickness(4, 1, 4, 1),
-                                HorizontalAlignment = HorizontalAlignment.Right,
-                                VerticalAlignment = VerticalAlignment.Top,
-                                Margin = new Thickness(0, 2, 2, 0),
-                                Child = new TextBlock { Text = badge, FontSize = 9, FontWeight = FontWeights.Bold, Foreground = Brushes.White }
-                            });
-                        }
+                            Background = Palette.UnreadRed,
+                            CornerRadius = new CornerRadius(7),
+                            Padding = new Thickness(4, 1, 4, 1),
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            VerticalAlignment = VerticalAlignment.Top,
+                            Margin = new Thickness(0, 2, 2, 0),
+                            Child = new TextBlock { Text = badge, FontSize = 9, FontWeight = FontWeights.Bold, Foreground = Brushes.White }
+                        });
                     }
-                    sq.Child = pinGrid;
+                }
+                sq.Child = pinGrid;
 
-                    var captured = pin;
-                    sq.MouseEnter += (s, e) => { if (captured != _activeTab) sq.Background = Palette.FrameHover; };
-                    sq.MouseLeave += (s, e) => { if (captured != _activeTab) sq.Background = Palette.FrameTile; };
-                    sq.MouseLeftButtonDown += (s, e) =>
+                var captured = pin;
+                sq.MouseEnter += (s, e) => { if (captured != _activeTab) sq.Background = Palette.FrameHover; };
+                sq.MouseLeave += (s, e) => { if (captured != _activeTab) sq.Background = Palette.FrameTile; };
+                sq.MouseLeftButtonDown += (s, e) =>
+                {
+                    if (e.ClickCount == 2 && !string.IsNullOrEmpty(captured.HomeUrl))
                     {
-                        if (e.ClickCount == 2 && !string.IsNullOrEmpty(captured.HomeUrl))
-                        {
-                            captured.Navigate(captured.HomeUrl);
-                            e.Handled = true;
-                            return;
-                        }
-                        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && Store.Prefs.CtrlClickPinOpensNewTab)
-                        {
-                            CreateAndSelectTab(string.IsNullOrEmpty(captured.HomeUrl) ? captured.Url : captured.HomeUrl, false);
-                            e.Handled = true;
-                            return;
-                        }
-                        BeginPotentialCarry(captured, sq, e);
-                    };
-                    sq.MouseRightButtonUp += (s, e) => { e.Handled = true; ShowTabContextMenu(captured); };
-                    if (_justPinnedTabId == pin.Id)
-                    {
-                        _justPinnedTabId = null;
-                        if (!Store.Prefs.ReduceAnimations)
-                        {
-                            var st = new ScaleTransform(0.8, 0.8);
-                            sq.RenderTransformOrigin = new Point(0.5, 0.5);
-                            sq.RenderTransform = st;
-                            var anim = new DoubleAnimation(0.8, 1.0, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-                            st.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
-                            st.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
-                        }
+                        captured.Navigate(captured.HomeUrl);
+                        e.Handled = true;
+                        return;
                     }
-                    _pinsPanel.Children.Add(sq);
+                    if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && Store.Prefs.CtrlClickPinOpensNewTab)
+                    {
+                        CreateAndSelectTab(string.IsNullOrEmpty(captured.HomeUrl) ? captured.Url : captured.HomeUrl, false);
+                        e.Handled = true;
+                        return;
+                    }
+                    BeginPotentialCarry(captured, sq, e);
+                };
+                sq.MouseRightButtonUp += (s, e) => { e.Handled = true; ShowTabContextMenu(captured); };
+                if (_justPinnedTabId == pin.Id)
+                {
+                    _justPinnedTabId = null;
+                    if (!Store.Prefs.ReduceAnimations)
+                    {
+                        var st = new ScaleTransform(0.8, 0.8);
+                        sq.RenderTransformOrigin = new Point(0.5, 0.5);
+                        sq.RenderTransform = st;
+                        var anim = new DoubleAnimation(0.8, 1.0, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+                        st.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+                        st.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+                    }
                 }
+                _pinsPanel.Children.Add(sq);
             }
 
             int tabNumCounter = 1;
@@ -3750,7 +3832,8 @@ namespace SearchBrowser
                     grid.Children.Add(iconAlign);
                 }
 
-                string normalLabel = (tab.KeepAwake ? "⚡ " : "") + (tab.IsAudible ? (tab.IsMuted ? "🔇 " : "🔊 ") : "") + tab.DisplayTitle;
+                string sleepPrefix = (tab.IsSleeping && !isLive) ? "☾ " : "";
+                string normalLabel = sleepPrefix + (tab.KeepAwake ? "⚡ " : "") + (tab.IsAudible ? (tab.IsMuted ? "🔇 " : "🔊 ") : "") + tab.DisplayTitle;
                 string activeLabel = (isLive && Store.Prefs.ShowAddressOnActiveTab && !isBlank && (tab.Url == null || !tab.Url.StartsWith("search://")))
                     ? Address.DisplayHost(tab.Url)
                     : normalLabel;
@@ -3933,15 +4016,18 @@ namespace SearchBrowser
 
             if (_carryPopup != null)
             {
-                _carryPopup.HorizontalOffset = curScreen.X - (_carryTab.Pinned ? 28 : 80);
-                _carryPopup.VerticalOffset = curScreen.Y - 16;
+                var psrc = PresentationSource.FromVisual(this);
+                double dpiX = psrc != null && psrc.CompositionTarget != null ? psrc.CompositionTarget.TransformToDevice.M11 : 1.0;
+                double dpiY = psrc != null && psrc.CompositionTarget != null ? psrc.CompositionTarget.TransformToDevice.M22 : 1.0;
+                _carryPopup.HorizontalOffset = (curScreen.X / dpiX) - (_carryTab.Pinned ? 28 : 80);
+                _carryPopup.VerticalOffset = (curScreen.Y / dpiY) - 16;
             }
 
             Point inSidebar = e.GetPosition(_sidebarBorder);
             Point inStage = e.GetPosition(_pageCardBorder);
-            double pinZoneBottom = Math.Max(46, _pinsPanel.ActualHeight + 16);
-            bool inSidebarX = inSidebar.X >= -20 && inSidebar.X <= _sidebarBorder.ActualWidth + 20;
-            bool overPins = !_carryTab.IsPrivate && inSidebarX && inSidebar.Y < pinZoneBottom;
+            double pinZoneBottom = Math.Max(52, _pinsPanel.ActualHeight + 22);
+            bool inSidebarX = inSidebar.X >= -24 && inSidebar.X <= _sidebarBorder.ActualWidth + 24;
+            bool overPins = !_carryTab.IsPrivate && inSidebarX && inSidebar.Y >= -16 && inSidebar.Y < pinZoneBottom;
             bool overTabs = inSidebarX && inSidebar.Y >= pinZoneBottom;
             _carryOverStage = !inSidebarX && inStage.X >= 0 && inStage.X <= _pageCardBorder.ActualWidth && inStage.Y >= 0 && inStage.Y <= _pageCardBorder.ActualHeight;
 
@@ -3951,17 +4037,18 @@ namespace SearchBrowser
                 _carryOverTabs = false;
                 if (_rowGhost != null) { _tabsStack.Children.Remove(_rowGhost); _rowGhost = null; }
                 if (_carryVisual != null) _carryVisual.Opacity = 0.55;
+                _pinsPanel.Visibility = Visibility.Visible;
                 if (_pinGhost == null)
                 {
                     double cw = GetDynamicPinCellWidth(_pinsPanel.Children.Count + 1);
                     _pinGhost = new Border
                     {
                         Width = cw, Height = 34, Margin = new Thickness(0, 0, 4, 4), CornerRadius = new CornerRadius(9),
-                        Background = Palette.FrameHover, BorderBrush = Palette.InkGhostEdge, BorderThickness = new Thickness(1),
-                        Opacity = 0.72, Child = CreateFaviconOrGlyph(_carryTab, 16, false)
+                        Background = Palette.FrameWash, BorderBrush = Palette.InkGhostEdge, BorderThickness = new Thickness(1.5),
+                        Opacity = 0.85, Child = CreateFaviconOrGlyph(_carryTab, 16, false)
                     };
                 }
-                int targetPinIdx = Math.Max(0, Math.Min(_pinsPanel.Children.Count, (int)(inSidebar.X / Math.Max(48, GetDynamicPinCellWidth(_pinsPanel.Children.Count) + 4))));
+                int targetPinIdx = Math.Max(0, Math.Min(_pinsPanel.Children.Count, (int)(Math.Max(0, inSidebar.X - 10) / Math.Max(48, GetDynamicPinCellWidth(_pinsPanel.Children.Count) + 4))));
                 _carryDropIndex = targetPinIdx;
                 if (_pinsPanel.Children.Contains(_pinGhost)) _pinsPanel.Children.Remove(_pinGhost);
                 _pinsPanel.Children.Insert(Math.Min(targetPinIdx, _pinsPanel.Children.Count), _pinGhost);
@@ -3976,24 +4063,24 @@ namespace SearchBrowser
                 Point inTabs = e.GetPosition(_tabsStack);
                 double rowH = (Store.Prefs.RoomierTabs ? 36 : 28) + 2;
                 int maxTabRows = Math.Max(0, _tabsStack.Children.Count - 1); // keep "+ New tab" last
-                int targetRowIdx = Math.Max(0, Math.Min(maxTabRows, (int)(inTabs.Y / rowH)));
+                int targetRowIdx = Math.Max(0, Math.Min(maxTabRows, (int)(Math.Max(0, inTabs.Y) / rowH)));
                 _carryDropIndex = targetRowIdx;
 
                 if (_rowGhost == null)
                 {
                     var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
                     sp.Children.Add(new Border { Width = 18, Margin = new Thickness(0, 0, 6, 0), Child = CreateFaviconOrGlyph(_carryTab, 15, true) });
-                    sp.Children.Add(new TextBlock { Text = _carryTab.DisplayTitle, FontSize = 12.5, Foreground = Palette.FrameMuted, VerticalAlignment = VerticalAlignment.Center });
+                    sp.Children.Add(new TextBlock { Text = _carryTab.DisplayTitle, FontSize = 12.5, Foreground = Palette.Ink, Opacity = 0.75, VerticalAlignment = VerticalAlignment.Center });
                     _rowGhost = new Border
                     {
                         Height = Store.Prefs.RoomierTabs ? 36 : 28,
                         CornerRadius = new CornerRadius(9),
                         Margin = new Thickness(0, 1, 0, 1),
                         Padding = new Thickness(10, 0, 10, 0),
-                        Background = Palette.FrameHover,
+                        Background = Palette.FrameWash,
                         BorderBrush = Palette.InkGhostEdge,
-                        BorderThickness = new Thickness(1),
-                        Opacity = 0.72,
+                        BorderThickness = new Thickness(1.5),
+                        Opacity = 0.85,
                         Child = sp
                     };
                 }
@@ -4219,9 +4306,26 @@ namespace SearchBrowser
                 RefreshTabRows();
                 SaveCurrentSession();
             });
-            AddPopupMenuItem(popup, stack, "Put to Sleep", "", () =>
+            AddPopupMenuItem(popup, stack, tab.IsSleeping ? "Wake Tab" : "Put to Sleep", "", async () =>
             {
-                if (tab != _activeTab) tab.PutToSleep();
+                if (tab.IsSleeping)
+                {
+                    await SelectTabAsync(tab);
+                    return;
+                }
+                tab.KeepAwake = false;
+                if (tab == _activeTab)
+                {
+                    var other = GetTabsForActiveSpace().FirstOrDefault(t => t != tab);
+                    if (other != null) await SelectTabAsync(other);
+                    else
+                    {
+                        _leftPaneHost.Child = null;
+                    }
+                }
+                tab.PutToSleep();
+                RefreshTabRows();
+                SaveCurrentSession();
             });
             AddPopupSeparator(stack);
             AddPopupMenuItem(popup, stack, "Close Tab", "Ctrl+W", () => CloseTab(tab, true));
@@ -4283,13 +4387,7 @@ namespace SearchBrowser
             }
 
             RefreshOmniboxOffers();
-            Dispatcher.InvokeAsync(() =>
-            {
-                Activate();
-                _omniboxInput.Focus();
-                Keyboard.Focus(_omniboxInput);
-                _omniboxInput.SelectAll();
-            }, DispatcherPriority.Input);
+            FocusPopupControl(_omniboxInput, true);
         }
 
         private void HideOmnibox()
@@ -4777,14 +4875,16 @@ namespace SearchBrowser
             bool ctrl = mods.HasFlag(ModifierKeys.Control);
             bool shift = mods.HasFlag(ModifierKeys.Shift);
             bool alt = mods.HasFlag(ModifierKeys.Alt);
+            // CRITICAL on Windows WPF: when Alt is held, e.Key is Key.System and the real key is e.SystemKey!
+            Key k = (e.Key == Key.System) ? e.SystemKey : e.Key;
 
-            if ((e.Key == Key.LeftCtrl || e.Key == Key.RightCtrl) && !_isCtrlHeld)
+            if ((k == Key.LeftCtrl || k == Key.RightCtrl) && !_isCtrlHeld)
             {
                 _isCtrlHeld = true;
                 if (Store.Prefs.ShowTabNumbersOnCtrl) RefreshTabRows();
             }
 
-            if (e.Key == Key.Escape)
+            if (k == Key.Escape)
             {
                 if (HandleEscapeKey())
                 {
@@ -4793,20 +4893,20 @@ namespace SearchBrowser
                 }
             }
 
-            if (e.Key == Key.F11)
+            if (k == Key.F11)
             {
                 ToggleFullScreen();
                 e.Handled = true;
                 return;
             }
-            if (e.Key == Key.F12 || (ctrl && shift && !alt && e.Key == Key.I))
+            if (k == Key.F12 || (ctrl && shift && !alt && k == Key.I))
             {
                 if (_activeTab != null && _activeTab.IsWebViewInitialized && _activeTab.WebView != null)
                     _activeTab.WebView.CoreWebView2.OpenDevToolsWindow();
                 e.Handled = true;
                 return;
             }
-            if (e.Key == Key.F5)
+            if (k == Key.F5)
             {
                 if (_activeTab != null && _activeTab.IsWebViewInitialized && _activeTab.WebView != null)
                 {
@@ -4816,13 +4916,13 @@ namespace SearchBrowser
                 e.Handled = true;
                 return;
             }
-            if (e.Key == Key.F6 || (alt && !ctrl && !shift && e.Key == Key.D))
+            if (k == Key.F6 || (alt && !ctrl && !shift && k == Key.D))
             {
                 ShowOmnibox(false, false);
                 e.Handled = true;
                 return;
             }
-            if (e.Key == Key.F3)
+            if (k == Key.F3)
             {
                 if (_findPopup != null && _findPopup.IsOpen && !string.IsNullOrEmpty(_findInput.Text))
                     await ExecuteFindOnPageAsync(_findInput.Text, !shift);
@@ -4831,55 +4931,55 @@ namespace SearchBrowser
                 e.Handled = true;
                 return;
             }
-            if (ctrl && !alt && e.Key == Key.F4)
+            if (ctrl && !alt && k == Key.F4)
             {
                 if (_activeTab != null) CloseTab(_activeTab);
                 e.Handled = true;
                 return;
             }
-            if (alt && !ctrl && !shift && e.Key == Key.Home)
+            if (alt && !ctrl && !shift && k == Key.Home)
             {
                 if (_activeTab != null && _activeTab.Pinned && !string.IsNullOrEmpty(_activeTab.HomeUrl))
                     _activeTab.Navigate(_activeTab.HomeUrl);
                 e.Handled = true;
                 return;
             }
-            if (alt && shift && !ctrl && (e.Key == Key.Left || e.Key == Key.Right))
+            if (alt && shift && !ctrl && (k == Key.Left || k == Key.Right))
             {
-                FocusSplitPane(e.Key == Key.Left);
+                FocusSplitPane(k == Key.Left);
                 e.Handled = true;
                 return;
             }
-            if (alt && !ctrl && !shift && (e.Key == Key.Left || e.Key == Key.Right))
+            if (alt && !ctrl && !shift && (k == Key.Left || k == Key.Right))
             {
                 if (_activeTab != null && _activeTab.WebView != null)
                 {
-                    if (e.Key == Key.Left && _activeTab.WebView.CanGoBack) _activeTab.WebView.GoBack();
-                    else if (e.Key == Key.Right && _activeTab.WebView.CanGoForward) _activeTab.WebView.GoForward();
+                    if (k == Key.Left && _activeTab.WebView.CanGoBack) _activeTab.WebView.GoBack();
+                    else if (k == Key.Right && _activeTab.WebView.CanGoForward) _activeTab.WebView.GoForward();
                 }
                 e.Handled = true;
                 return;
             }
-            if (alt && shift && !ctrl && e.Key == Key.N)
+            if (alt && shift && !ctrl && k == Key.N)
             {
                 ToggleSplitView();
                 e.Handled = true;
                 return;
             }
-            if (alt && shift && !ctrl && e.Key == Key.L)
+            if (alt && shift && !ctrl && k == Key.L)
             {
                 OpenOrSelectSettingsTab("passwords");
                 e.Handled = true;
                 return;
             }
-            if (alt && shift && !ctrl && e.Key == Key.C)
+            if (alt && shift && !ctrl && k == Key.C)
             {
                 if (_activeTab != null && !string.IsNullOrEmpty(_activeTab.Url))
                     Clipboard.SetText(CleanLink.Clean(_activeTab.Url, true));
                 e.Handled = true;
                 return;
             }
-            if (alt && shift && !ctrl && e.Key == Key.D)
+            if (alt && shift && !ctrl && k == Key.D)
             {
                 if (_activeTab != null)
                 {
@@ -4889,9 +4989,9 @@ namespace SearchBrowser
                 e.Handled = true;
                 return;
             }
-            if (alt && !ctrl && !shift && (e.Key >= Key.D1 && e.Key <= Key.D9))
+            if (alt && !ctrl && !shift && ((k >= Key.D1 && k <= Key.D9) || (k >= Key.NumPad1 && k <= Key.NumPad9)))
             {
-                int spIdx = (int)(e.Key - Key.D1);
+                int spIdx = (k >= Key.NumPad1 && k <= Key.NumPad9) ? (int)(k - Key.NumPad1) : (int)(k - Key.D1);
                 if (Store.Prefs.CtrlNumbersSwitchSpaces)
                 {
                     var spaceTabs = GetTabsForActiveSpace();
@@ -4908,9 +5008,9 @@ namespace SearchBrowser
 
             if (ctrl && !alt)
             {
-                if (!shift && (e.Key >= Key.D1 && e.Key <= Key.D9))
+                if (!shift && (k >= Key.D1 && k <= Key.D9))
                 {
-                    int idx = (int)(e.Key - Key.D1);
+                    int idx = (int)(k - Key.D1);
                     if (Store.Prefs.CtrlNumbersSwitchSpaces && idx < Store.Spaces.Count)
                     {
                         CycleSpace(idx);
@@ -4926,20 +5026,20 @@ namespace SearchBrowser
                         return;
                     }
                 }
-                if (e.Key == Key.Tab)
+                if (k == Key.Tab)
                 {
                     StepMruSwitcher(shift);
                     e.Handled = true;
                     return;
                 }
-                if (e.Key == Key.PageDown || e.Key == Key.PageUp)
+                if (k == Key.PageDown || k == Key.PageUp)
                 {
-                    await StepAdjacentTabAsync(e.Key == Key.PageUp);
+                    await StepAdjacentTabAsync(k == Key.PageUp);
                     e.Handled = true;
                     return;
                 }
 
-                string keyStr = KeyToShortcutString(e.Key);
+                string keyStr = KeyToShortcutString(k);
                 if (!string.IsNullOrEmpty(keyStr))
                 {
                     bool handled = await HandleShortcutKeyAsync(keyStr, shift);
@@ -5165,7 +5265,7 @@ namespace SearchBrowser
                         await TogglePictureInPictureAsync();
                         return true;
                     case "b":
-                        ToggleBookmarkCurrentPage(false);
+                        BookmarkCurrentPageAndShowCard();
                         return true;
                     case "j":
                         ShowDownloadsDrawer();
@@ -5242,46 +5342,348 @@ namespace SearchBrowser
             await _activeTab.WebView.CoreWebView2.ExecuteScriptAsync(PageFeatures.GetInPageTranslateScript(Store.Prefs.TranslateTargetLang));
         }
 
-        private void ShowBookmarksPopover(FrameworkElement anchor)
+        private void BookmarkCurrentPageAndShowCard()
         {
-            StackPanel stack;
-            var popup = CreateThemedPopupMenu(anchor, System.Windows.Controls.Primitives.PlacementMode.Bottom, out stack);
-            stack.MinWidth = 260;
+            if (_activeTab == null || string.IsNullOrWhiteSpace(_activeTab.Url) || _activeTab.Url == "about:blank" || _activeTab.Url.StartsWith("search://"))
+            {
+                ShowBookmarksPopover(_bmDoor, false);
+                return;
+            }
+            var existing = Store.Bookmarks.FirstOrDefault(b => string.Equals(b.Url, _activeTab.Url, StringComparison.OrdinalIgnoreCase));
+            if (existing == null)
+            {
+                existing = new BookmarkItem
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Title = _activeTab.DisplayTitle,
+                    Url = _activeTab.Url,
+                    DateIso = DateTime.UtcNow.ToString("o")
+                };
+                Store.Bookmarks.Insert(0, existing);
+                Store.SaveBookmarks();
+                if (Store.Prefs.SyncEnabled) FolderSync.PushToSyncFolder();
+                RefreshBookmarksBar();
+                UpdateBookmarkDoorIcon();
+            }
+            ShowBookmarksPopover(_bmDoor, true);
+        }
 
+        // Exact 1:1 port of oriel-ref/src/ui/data/BookmarkDoor.tsx + data.css:
+        // 280px rounded 12px Ground card + rotated diamond arrow, 27px rows with 15x15 r=3.3 monogram marks,
+        // middle-click background open, right-click Open/Rename/Remove, hairline rule, Add/Edit foot row, and inline Bookmarked Card.
+        private void ShowBookmarksPopover(FrameworkElement anchor, bool openCardDirectly = false)
+        {
             bool canBookmark = _activeTab != null && !string.IsNullOrWhiteSpace(_activeTab.Url) && _activeTab.Url != "about:blank" && !_activeTab.Url.StartsWith("search://");
             var existing = canBookmark ? Store.Bookmarks.FirstOrDefault(b => string.Equals(b.Url, _activeTab.Url, StringComparison.OrdinalIgnoreCase)) : null;
 
-            if (Store.Bookmarks.Count == 0)
+            var cardHost = new Border
             {
-                stack.Children.Add(new TextBlock
-                {
-                    Text = "No bookmarks yet",
-                    FontSize = 12,
-                    Foreground = Palette.Muted,
-                    Margin = new Thickness(10, 6, 10, 6)
-                });
-            }
-            else
+                Width = 280,
+                Background = Palette.Ground,
+                BorderBrush = Palette.CardEdge,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12),
+                Effect = new DropShadowEffect { BlurRadius = 20, ShadowDepth = 6, Opacity = 0.24 }
+            };
+
+            // Diamond pointer arrow at top right pointing directly at the bookmark door
+            var wrapper = new Grid { Margin = new Thickness(8, 6, 8, 12) };
+            var arrow = new Border
             {
-                foreach (var bm in Store.Bookmarks.Take(12).ToList())
+                Width = 12,
+                Height = 12,
+                Background = Palette.Ground,
+                BorderBrush = Palette.CardEdge,
+                BorderThickness = new Thickness(1, 1, 0, 0),
+                CornerRadius = new CornerRadius(2),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, -5, 16, 0),
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new RotateTransform(45)
+            };
+            wrapper.Children.Add(cardHost);
+            wrapper.Children.Add(arrow);
+
+            var popup = new System.Windows.Controls.Primitives.Popup
+            {
+                Child = wrapper,
+                PlacementTarget = anchor ?? _bmDoor,
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+                HorizontalOffset = -236,
+                VerticalOffset = 4,
+                AllowsTransparency = true,
+                StaysOpen = false,
+                PopupAnimation = System.Windows.Controls.Primitives.PopupAnimation.Fade
+            };
+
+            Action renderCard = null;
+            Action renderList = null;
+
+            renderCard = () =>
+            {
+                if (!canBookmark) { renderList(); return; }
+                var curBm = Store.Bookmarks.FirstOrDefault(b => string.Equals(b.Url, _activeTab.Url, StringComparison.OrdinalIgnoreCase));
+                if (curBm == null)
                 {
-                    var cap = bm;
-                    AddPopupMenuItem(popup, stack, cap.Title, Address.DisplayHost(cap.Url), () =>
+                    curBm = new BookmarkItem
                     {
-                        if (_activeTab != null) _activeTab.Navigate(cap.Url);
+                        Id = Guid.NewGuid().ToString("N"),
+                        Title = _activeTab.DisplayTitle,
+                        Url = _activeTab.Url,
+                        DateIso = DateTime.UtcNow.ToString("o")
+                    };
+                    Store.Bookmarks.Insert(0, curBm);
+                    Store.SaveBookmarks();
+                    if (Store.Prefs.SyncEnabled) FolderSync.PushToSyncFolder();
+                    RefreshBookmarksBar();
+                    UpdateBookmarkDoorIcon();
+                }
+
+                var panel = new StackPanel { Margin = new Thickness(14) };
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "Bookmarked",
+                    FontSize = 13,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = Palette.Ink,
+                    Margin = new Thickness(0, 0, 0, 12)
+                });
+
+                var nameRow = new DockPanel { Margin = new Thickness(0, 0, 0, 14) };
+                var lbl = new TextBlock
+                {
+                    Text = "Name",
+                    Width = 44,
+                    FontSize = 11.5,
+                    Foreground = Palette.Muted,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                DockPanel.SetDock(lbl, Dock.Left);
+                nameRow.Children.Add(lbl);
+
+                var nameBox = new TextBox
+                {
+                    Text = curBm.Title ?? "",
+                    Height = 26,
+                    FontSize = 12.5,
+                    Background = Palette.Wash,
+                    Foreground = Palette.Ink,
+                    CaretBrush = Palette.Ink,
+                    BorderThickness = new Thickness(0),
+                    Padding = new Thickness(8, 4, 8, 4),
+                    VerticalContentAlignment = VerticalAlignment.Center
+                };
+                var nameWrap = new Border { CornerRadius = new CornerRadius(8), Background = Palette.Wash, ClipToBounds = true, Child = nameBox };
+                var capBm = curBm;
+                nameBox.TextChanged += (s, e) =>
+                {
+                    capBm.Title = nameBox.Text;
+                    Store.SaveBookmarks();
+                    RefreshBookmarksBar();
+                };
+                nameBox.KeyDown += (s, e) =>
+                {
+                    if (e.Key == Key.Enter || e.Key == Key.Escape) { popup.IsOpen = false; e.Handled = true; }
+                };
+                nameRow.Children.Add(nameWrap);
+                panel.Children.Add(nameRow);
+
+                var btnsDock = new DockPanel();
+                var rmBtn = new Border
+                {
+                    Padding = new Thickness(6, 4, 6, 4),
+                    CornerRadius = new CornerRadius(6),
+                    Background = Brushes.Transparent,
+                    Cursor = Cursors.Hand,
+                    Child = new TextBlock { Text = "Remove", FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(229, 72, 77)) }
+                };
+                rmBtn.MouseEnter += (s, e) => rmBtn.Background = Palette.Hover;
+                rmBtn.MouseLeave += (s, e) => rmBtn.Background = Brushes.Transparent;
+                rmBtn.MouseLeftButtonUp += (s, e) =>
+                {
+                    e.Handled = true;
+                    Store.Bookmarks.Remove(capBm);
+                    Store.SaveBookmarks();
+                    RefreshBookmarksBar();
+                    UpdateBookmarkDoorIcon();
+                    popup.IsOpen = false;
+                };
+                DockPanel.SetDock(rmBtn, Dock.Left);
+                btnsDock.Children.Add(rmBtn);
+
+                var doneBtn = new Border
+                {
+                    Padding = new Thickness(14, 5, 14, 5),
+                    CornerRadius = new CornerRadius(999),
+                    Background = Palette.Ink,
+                    Cursor = Cursors.Hand,
+                    Child = new TextBlock { Text = "Done", FontSize = 12, FontWeight = FontWeights.Medium, Foreground = Palette.Ground }
+                };
+                doneBtn.MouseLeftButtonUp += (s, e) => { e.Handled = true; popup.IsOpen = false; };
+                DockPanel.SetDock(doneBtn, Dock.Right);
+                btnsDock.Children.Add(doneBtn);
+                btnsDock.Children.Add(new Grid());
+                panel.Children.Add(btnsDock);
+
+                cardHost.Child = panel;
+                FocusPopupControl(nameBox, true);
+            };
+
+            renderList = () =>
+            {
+                var outer = new StackPanel();
+                if (Store.Bookmarks.Count == 0)
+                {
+                    outer.Children.Add(new TextBlock
+                    {
+                        Text = "No bookmarks yet",
+                        FontSize = 12.5,
+                        Foreground = Palette.Muted,
+                        Margin = new Thickness(14, 14, 14, 14)
                     });
                 }
-            }
-
-            AddPopupSeparator(stack);
-            if (canBookmark)
-            {
-                AddPopupMenuItem(popup, stack, existing != null ? "✓ Remove This Page" : "+ Add This Page", "Ctrl+Shift+B", () =>
+                else
                 {
-                    ToggleBookmarkCurrentPage(false);
+                    var scroll = new ScrollViewer
+                    {
+                        MaxHeight = 360,
+                        VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,
+                        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+                    };
+                    var rowsStack = new StackPanel { Margin = new Thickness(6) };
+                    foreach (var bm in Store.Bookmarks.ToList())
+                    {
+                        var cap = bm;
+                        var row = new Border
+                        {
+                            Height = 27,
+                            CornerRadius = new CornerRadius(8),
+                            Padding = new Thickness(10, 0, 10, 0),
+                            Margin = new Thickness(0, 0.5, 0, 0.5),
+                            Background = Brushes.Transparent,
+                            Cursor = Cursors.Hand,
+                            ToolTip = cap.Url
+                        };
+                        var rowDock = new DockPanel();
+                        string letter = string.IsNullOrEmpty(cap.Title) ? "•" : cap.Title.Substring(0, 1).ToUpperInvariant();
+                        var mark = new Border
+                        {
+                            Width = 15, Height = 15, CornerRadius = new CornerRadius(3.3),
+                            Background = Palette.InkMarkBg, Margin = new Thickness(0, 0, 8, 0),
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Child = new TextBlock { Text = letter, FontSize = 8.4, FontWeight = FontWeights.Medium, Foreground = Palette.Muted, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                        };
+                        DockPanel.SetDock(mark, Dock.Left);
+                        rowDock.Children.Add(mark);
+                        rowDock.Children.Add(new TextBlock
+                        {
+                            Text = string.IsNullOrWhiteSpace(cap.Title) ? Address.DisplayHost(cap.Url) : cap.Title,
+                            FontSize = 12.5,
+                            Foreground = Palette.Ink,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            TextTrimming = TextTrimming.CharacterEllipsis
+                        });
+                        row.Child = rowDock;
+                        row.MouseEnter += (s, e) => row.Background = Palette.Wash;
+                        row.MouseLeave += (s, e) => row.Background = Brushes.Transparent;
+                        row.MouseDown += (s, e) =>
+                        {
+                            if (e.ChangedButton == MouseButton.Middle)
+                            {
+                                e.Handled = true;
+                                popup.IsOpen = false;
+                                CreateAndSelectTab(cap.Url, false, false, null, _activeTab, true);
+                            }
+                        };
+                        row.MouseLeftButtonUp += (s, e) =>
+                        {
+                            e.Handled = true;
+                            popup.IsOpen = false;
+                            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) CreateAndSelectTab(cap.Url, false);
+                            else if (_activeTab != null) _activeTab.Navigate(cap.Url);
+                        };
+                        row.MouseRightButtonUp += (s, e) =>
+                        {
+                            e.Handled = true;
+                            StackPanel ms;
+                            var cm = CreateThemedPopupMenu(null, System.Windows.Controls.Primitives.PlacementMode.MousePoint, out ms);
+                            AddPopupMenuItem(cm, ms, "Open", "", () => { popup.IsOpen = false; if (_activeTab != null) _activeTab.Navigate(cap.Url); });
+                            AddPopupMenuItem(cm, ms, "Open in New Tab", "", () => { popup.IsOpen = false; CreateAndSelectTab(cap.Url, false); });
+                            AddPopupSeparator(ms);
+                            AddPopupMenuItem(cm, ms, "Rename…", "", () =>
+                            {
+                                string n = PromptForText("Rename Bookmark", "Bookmark name:", cap.Title);
+                                if (n != null) { cap.Title = n.Trim(); Store.SaveBookmarks(); RefreshBookmarksBar(); renderList(); }
+                            });
+                            AddPopupMenuItem(cm, ms, "Remove", "", () =>
+                            {
+                                Store.Bookmarks.Remove(cap); Store.SaveBookmarks(); RefreshBookmarksBar(); UpdateBookmarkDoorIcon(); renderList();
+                            });
+                            cm.IsOpen = true;
+                        };
+                        rowsStack.Children.Add(row);
+                    }
+                    scroll.Content = rowsStack;
+                    outer.Children.Add(scroll);
+                }
+
+                outer.Children.Add(new Border { Height = 1, Background = Palette.Hairline });
+
+                var foot = new StackPanel { Margin = new Thickness(6) };
+                var addRow = new Border
+                {
+                    Height = 27,
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(10, 0, 10, 0),
+                    Background = Brushes.Transparent,
+                    Opacity = canBookmark ? 1.0 : 0.4,
+                    Cursor = canBookmark ? Cursors.Hand : Cursors.Arrow
+                };
+                var addStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                addStack.Children.Add(new Border
+                {
+                    Width = 14, Height = 14, Margin = new Thickness(0, 0, 8, 0),
+                    Child = existing != null
+                        ? VectorIcons.DrawFilled(VectorIcons.BookmarkPath, Palette.Ink, 12)
+                        : VectorIcons.Draw(VectorIcons.BookmarkPath, Palette.Muted, 12, 1.45)
                 });
-            }
-            AddPopupMenuItem(popup, stack, "Manage & Import Bookmarks…", "", () => ShowBookmarksDrawer());
+                addStack.Children.Add(new TextBlock
+                {
+                    Text = existing != null ? "Edit This Bookmark…" : "Add This Page",
+                    FontSize = 12.5,
+                    Foreground = Palette.Ink,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                addRow.Child = addStack;
+                if (canBookmark)
+                {
+                    addRow.MouseEnter += (s, e) => addRow.Background = Palette.Wash;
+                    addRow.MouseLeave += (s, e) => addRow.Background = Brushes.Transparent;
+                    addRow.MouseLeftButtonUp += (s, e) => { e.Handled = true; renderCard(); };
+                }
+                foot.Children.Add(addRow);
+
+                var importRow = new Border
+                {
+                    Height = 27,
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(10, 0, 10, 0),
+                    Background = Brushes.Transparent,
+                    Cursor = Cursors.Hand
+                };
+                importRow.Child = new TextBlock { Text = "Import Bookmarks…", FontSize = 12, Foreground = Palette.Muted, VerticalAlignment = VerticalAlignment.Center };
+                importRow.MouseEnter += (s, e) => importRow.Background = Palette.Wash;
+                importRow.MouseLeave += (s, e) => importRow.Background = Brushes.Transparent;
+                importRow.MouseLeftButtonUp += (s, e) => { e.Handled = true; popup.IsOpen = false; ShowImportDrawer(); };
+                foot.Children.Add(importRow);
+
+                outer.Children.Add(foot);
+                cardHost.Child = outer;
+            };
+
+            if (openCardDirectly && canBookmark) renderCard();
+            else renderList();
             popup.IsOpen = true;
         }
 
@@ -6244,6 +6646,7 @@ namespace SearchBrowser
                 if (b == _maxBtn && WindowState == WindowState.Maximized) curPath = VectorIcons.WinRestorePath;
                 b.Child = VectorIcons.Draw(curPath, Palette.FrameMuted, 12, 1.45);
             };
+            b.MouseLeftButtonDown += (s, e) => { e.Handled = true; };
             b.MouseLeftButtonUp += (s, e) =>
             {
                 e.Handled = true;
@@ -6268,6 +6671,7 @@ namespace SearchBrowser
             WindowChrome.SetIsHitTestVisibleInChrome(b, true);
             b.MouseEnter += (s, e) => b.Background = Palette.FrameHover;
             b.MouseLeave += (s, e) => b.Background = Brushes.Transparent;
+            b.MouseLeftButtonDown += (s, e) => { e.Handled = true; };
             b.MouseLeftButtonUp += (s, e) =>
             {
                 e.Handled = true;

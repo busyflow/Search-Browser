@@ -541,9 +541,12 @@ namespace SearchBrowser
       sendToHost({ type: 'shortcut', key: k, shift: sh, ctrl: ctrl, alt: alt });
       return;
     }
-    if (alt && !ctrl && !sh && (k >= '1' && k <= '9')) {
+    var code = e.code || '';
+    var digitKey = (code.indexOf('Digit') === 0 && code.length === 6) ? code.charAt(5) : k;
+    if (alt && !ctrl && !sh && (digitKey >= '1' && digitKey <= '9')) {
       e.preventDefault();
-      sendToHost({ type: 'shortcut', key: k, shift: false, ctrl: false, alt: true });
+      e.stopPropagation();
+      sendToHost({ type: 'shortcut', key: digitKey, shift: false, ctrl: false, alt: true });
       return;
     }
     if (alt && !ctrl && !sh && (k === 'arrowleft' || k === 'arrowright' || k === 'd' || k === 'home')) {

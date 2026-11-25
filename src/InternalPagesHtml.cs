@@ -20,41 +20,11 @@ namespace SearchBrowser
             string hover = dark ? "rgba(255,255,255,0.045)" : "rgba(0,0,0,0.035)";
             string wash = dark ? "#2D2D2D" : "#EFEFEF";
 
-            string theme = Store.Prefs != null ? Store.Prefs.BlankWallTheme : "Clean";
-            string wallMode = Store.Prefs != null ? Store.Prefs.BlankWallMode : "Off";
-            string customVal = Store.Prefs != null ? Store.Prefs.BlankWallCustomValue : "";
-            string wallStyle = "background:" + ground + ";";
-            if (wallMode == "Wall painting")
-            {
-                if (theme == "Dusk Gradient")
-                    wallStyle = dark ? "background:radial-gradient(circle at 50% 35%, #252836 0%, #15161e 100%);" : "background:radial-gradient(circle at 50% 35%, #f3f5ff 0%, #ffffff 100%);";
-                else if (theme == "Warm Paper")
-                    wallStyle = dark ? "background:radial-gradient(circle at 50% 40%, #26221e 0%, #181614 100%);" : "background:radial-gradient(circle at 50% 40%, #faf6f0 0%, #f5efe6 100%);";
-                else if (theme == "Forest Mist")
-                    wallStyle = dark ? "background:radial-gradient(circle at 50% 40%, #1a2822 0%, #121815 100%);" : "background:radial-gradient(circle at 50% 40%, #f0f9f4 0%, #ffffff 100%);";
-                else
-                    wallStyle = dark ? "background:radial-gradient(circle at 50% 35%, #252836 0%, #15161e 100%);" : "background:radial-gradient(circle at 50% 35%, #f3f5ff 0%, #ffffff 100%);";
-            }
-            else if (wallMode == "Solid colour" && !string.IsNullOrEmpty(customVal))
-            {
-                wallStyle = "background:" + EscHtml(customVal) + ";";
-            }
-            else if (wallMode == "Gradient")
-            {
-                string g = !string.IsNullOrEmpty(customVal) ? customVal : (dark ? "linear-gradient(135deg, #1a1b26 0%, #24283b 50%, #1f2335 100%)" : "linear-gradient(135deg, #eef2ff 0%, #f8fafc 50%, #f0fdf4 100%)");
-                wallStyle = "background:" + g + ";";
-            }
-            else if (wallMode == "Stickers")
-            {
-                wallStyle = dark
-                    ? "background:radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px) 0 0 / 24px 24px, " + ground + ";"
-                    : "background:radial-gradient(rgba(0,0,0,0.06) 1px, transparent 1px) 0 0 / 24px 24px, " + ground + ";";
-            }
-            else if (wallMode == "Image" && !string.IsNullOrEmpty(customVal) && System.IO.File.Exists(customVal))
-            {
-                string fileUri = new Uri(customVal).AbsoluteUri;
-                wallStyle = "background:url('" + EscHtml(fileUri) + "') center/cover no-repeat;";
-            }
+            string homeTheme = Store.Prefs != null && !string.IsNullOrEmpty(Store.Prefs.HomeThemeId) ? Store.Prefs.HomeThemeId : "off";
+            string homeTuning = Store.Prefs != null && !string.IsNullOrEmpty(Store.Prefs.HomeTuningJson) ? Store.Prefs.HomeTuningJson : "{}";
+            bool homeShuffle = Store.Prefs != null && Store.Prefs.HomeShuffle;
+            string imgDataUri = homeTheme == "custom" ? HomeThemesJs.GetCustomImageDataUri() : "";
+            bool isThemed = homeTheme != "off" && (homeTheme != "custom" || !string.IsNullOrEmpty(imgDataUri));
 
             // Build history/bookmarks JSON for instant inline suggestions right under the centered New Tab field
             var suggestions = new List<string>();
@@ -68,7 +38,6 @@ namespace SearchBrowser
             }
             string itemsJson = "[" + string.Join(",", suggestions) + "]";
 
-            bool isThemed = wallMode != "Off";
             var homeGridHtml = new StringBuilder();
             if (Store.Prefs != null && Store.Prefs.ShowHomeBookmarksOnNewTab && Store.Bookmarks.Count > 0)
             {
@@ -82,6 +51,10 @@ namespace SearchBrowser
                 }
                 homeGridHtml.Append("</div>");
             }
+
+            string customImgHtml = (homeTheme == "custom" && !string.IsNullOrEmpty(imgDataUri))
+                ? "<div class='home-bg'><img class='home-bg-art' src='" + imgDataUri + "' alt='' /><div id='imgVeil' class='home-bg-veil'></div></div>"
+                : (homeTheme != "off" ? "<div class='home-bg'><canvas id='wallCanvas' class='home-bg-art'></canvas></div>" : "");
 
             return @"<!DOCTYPE html>
 <html>
@@ -102,18 +75,22 @@ namespace SearchBrowser
   html, body {
     height: 100%;
     overflow: hidden;
-    " + wallStyle + @"
+    background: var(--ground);
     color: var(--ink);
     font-family: 'Plus Jakarta Sans', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     user-select: none;
   }
+  .home-bg { position: fixed; inset: 0; overflow: hidden; background: var(--ground); pointer-events: none; z-index: 0; }
+  .home-bg-art { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+  .home-bg-veil { position: absolute; inset: 0; background: var(--ground); opacity: 0; }
   .empty-page {
     position: absolute;
     inset: 0;
     display: grid;
     place-items: center;
     padding-bottom: 60px;
+    z-index: 1;
   }
   .field-wrap {
     position: relative;
@@ -255,6 +232,7 @@ namespace SearchBrowser
 </style>
 </head>
 <body>
+  " + customImgHtml + @"
   <div class='empty-page'>
     <div class='field-wrap'>
       " + (isThemed ? "" : "<div class='field-breath'></div>") + @"
@@ -266,14 +244,30 @@ namespace SearchBrowser
     </div>
   </div>
 
-  <button class='blank-door " + (isThemed ? "themed" : "") + @"' title='Settings (Ctrl+,)' onclick=""send({type:'openSettings'})"">
+  <button class='blank-door " + (isThemed ? "themed" : "") + @"' style='z-index:2' title='Settings (Ctrl+,)' onclick=""send({type:'openSettings'})"">
     <svg width='12.1' height='12.1' viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'>
       <path d='M6.81 3.56L7.02 1.56L8.98 1.56L9.19 3.56A4.6 4.6 0 0 1 11.4 4.84L13.24 4.02L14.22 5.72L12.59 6.91A4.6 4.6 0 0 1 12.59 9.09L14.22 10.28L13.24 11.98L11.4 11.16A4.6 4.6 0 0 1 9.19 12.44L8.98 14.44L7.02 14.44L6.81 12.44A4.6 4.6 0 0 1 4.6 11.16L2.76 11.98L1.78 10.28L3.41 9.09A4.6 4.6 0 0 1 3.41 6.91L1.78 5.72L2.76 4.02L4.6 4.84A4.6 4.6 0 0 1 6.81 3.56Z'/>
       <circle cx='8' cy='8' r='1.9'/>
     </svg>
   </button>
 
-  <script>
+  <script>" + HomeThemesJs.RendererScript + @"
+    (function() {
+      var ht = '" + Esc(homeTheme) + @"';
+      var tuning = " + homeTuning + @";
+      var dark = " + (dark ? "true" : "false") + @";
+      var shuf = " + (homeShuffle ? "true" : "false") + @";
+      var veil = document.getElementById('imgVeil');
+      if (veil && tuning && typeof tuning.intensity === 'number') {
+        veil.style.opacity = String(Math.max(0, 1 - tuning.intensity));
+      }
+      var wc = document.getElementById('wallCanvas');
+      if (wc && window.__searchThemes) {
+        var drawWall = function() { window.__searchThemes.renderTo(wc, ht, tuning, dark, shuf, false); };
+        drawWall();
+        window.addEventListener('resize', drawWall);
+      }
+    })();
     var items = " + itemsJson + @";
     var input = document.getElementById('addr');
     var list = document.getElementById('list');
@@ -407,7 +401,7 @@ namespace SearchBrowser
             return "<button type='button' class='st-info' title='" + EscHtml(tip) + "' onclick='toggleInfo(this)' data-more='" + EscHtml(tip) + "'>i</button>";
         }
 
-        public static string BuildSettingsTabHtml(string activeSection = "general")
+        public static string BuildSettingsTabHtml(string activeSection = "general", int initialScrollY = 0)
         {
             var p = Store.Prefs;
             bool dark = Palette.IsDark;
@@ -746,26 +740,48 @@ namespace SearchBrowser
   .st-pic-label { font-size: 11.5px; color: var(--muted); }
   .st-pic.on .st-pic-label { color: var(--ink); font-weight: 500; }
 
-  .home-preview {
-    position: relative;
-    height: 140px;
-    border-radius: 10px;
-    background: var(--ground);
-    box-shadow: inset 0 0 0 1px var(--hairline);
-    display: grid;
-    place-items: center;
-    overflow: hidden;
-  }
-  .home-preview-tabs { position: absolute; left: 10px; top: 10px; display: flex; flex-direction: column; gap: 4px; }
-  .home-preview-tab { width: 42px; height: 6px; border-radius: 3px; background: var(--wash); }
-  .home-preview-pill {
-    padding: 6px 22px;
-    border-radius: 999px;
-    border: 1px solid var(--hairline);
-    background: var(--ground);
-    font-size: 11px;
-    color: var(--muted);
-  }
+  .th { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; color: var(--ink); }
+  .th-note { font-size: 12px; line-height: 14.3px; color: var(--muted); }
+  .th-small { font-size: 11px; line-height: 13.1px; color: var(--muted); }
+  .th-mock { position: relative; width: 480px; max-width: 100%; aspect-ratio: 480 / 300; border-radius: 12px; overflow: hidden; background: var(--ground); flex: none; }
+  .th-mock::after { content: ''; position: absolute; inset: 0; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--hairline); pointer-events: none; }
+  .th-mock-canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .th-mock-field { position: absolute; left: 50%; top: 50%; width: 220px; height: 30px; transform: translate(-50%, -50%); display: grid; place-items: center; border-radius: 9px; background: var(--ground); box-shadow: inset 0 0 0 1px var(--hairline); font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .th-bar { display: block; border-radius: 3px; background: rgba(var(--ink-rgb), 0.16); }
+  .th-mock-column { position: absolute; top: 0; bottom: 0; left: 0; width: 70px; padding: 10px; display: flex; flex-direction: column; gap: 6px; background: color-mix(in srgb, var(--ground) 55%, transparent); }
+  .th-mock-column.right { left: auto; right: 0; }
+  .th-mock-column .th-bar { height: 8px; }
+  .th-mock-strip { position: absolute; left: 0; right: 0; top: 0; height: 26px; padding: 0 10px; display: flex; align-items: center; gap: 6px; background: color-mix(in srgb, var(--ground) 55%, transparent); }
+  .th-mock-strip .th-bar { width: 56px; height: 10px; }
+  .th-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 166px)); gap: 14px; justify-content: start; align-items: start; align-self: stretch; width: 100%; }
+  .th-card { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; background: none; border: 0; cursor: pointer; }
+  .th-ring { display: block; width: 100%; padding: 3px; border-radius: 13px; box-shadow: inset 0 0 0 2.5px transparent; }
+  .th-card.on .th-ring { box-shadow: inset 0 0 0 2.5px #007AFF; }
+  .th-thumb { position: relative; display: block; width: 100%; aspect-ratio: 160 / 100; border-radius: 10px; overflow: hidden; background: var(--ground); }
+  .th-thumb canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .th-thumb::after { content: ''; position: absolute; inset: 0; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--hairline); pointer-events: none; }
+  .th-name { font-size: 11.5px; line-height: 13.7px; color: var(--muted); }
+  .th-card.on .th-name { color: var(--ink); font-weight: 500; }
+  .th-solid { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .th-swatch { width: 24px; height: 24px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--hairline); flex: none; cursor: pointer; }
+  .th-swatch.on { box-shadow: inset 0 0 0 2px var(--ink); }
+  .th-well-row { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
+  .th-well { position: relative; width: 38px; height: 22px; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.18), 0 0 0 2px var(--ground), 0 0 0 3px var(--hairline); overflow: hidden; display: inline-block; }
+  .th-well input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
+  .th-gradient { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; align-self: stretch; width: 100%; }
+  .th-wells { display: flex; gap: 16px; padding-left: 4px; }
+  .th-image { display: flex; align-items: flex-start; gap: 16px; }
+  .th-image-frame { position: relative; width: 176px; height: 114px; border-radius: 8px; overflow: hidden; flex: none; background: var(--wash); display: grid; place-items: center; color: var(--muted); }
+  .th-image-frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .th-image-frame::after { content: ''; position: absolute; inset: 0; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--hairline); pointer-events: none; }
+  .th-image-side { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .th-check { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink); cursor: pointer; }
+  .th-check input { accent-color: #007AFF; }
+  .th-sliders { display: flex; flex-direction: column; gap: 8px; align-self: stretch; width: 100%; }
+  .th-slider { display: flex; align-items: center; gap: 10px; align-self: stretch; }
+  .th-slider-title { width: 64px; flex: none; font-size: 12px; color: var(--muted); }
+  .th-slider input { flex: 1; min-width: 0; accent-color: #007AFF; }
+  .th-slider-value { width: 40px; flex: none; text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--muted); }
 
   .st-nothing { font-size: 12.5px; color: var(--muted); padding: 16px 14px; }
   .st-line { display: flex; align-items: center; gap: 16px; padding: 10px 14px; }
@@ -1200,13 +1216,7 @@ namespace SearchBrowser
               <div class='sr-words'><div class='sr-title'>Home background " + Info("Customize the New Tab canvas") + @"</div><div class='sr-detail'>Paint the blank tab: a wall, stickers, a colour, a gradient or your own picture</div></div>
             </div>
             <div class='sr-wide'>
-              <div class='home-preview'>
-                <div class='home-preview-tabs'><div class='home-preview-tab'></div><div class='home-preview-tab'></div><div class='home-preview-tab'></div><div class='home-preview-tab'></div></div>
-                <div class='home-preview-pill'>Search or enter address</div>
-              </div>
-              <div style='margin-top:10px'>" + Seg("BlankWallMode", wallMode, "Off", "Wall painting", "Stickers", "Solid colour", "Gradient", "Image") + @"</div>
-              " + wallSubControls + @"
-              <div class='sr-detail' style='margin-top:8px'>" + wallDesc + @"</div>
+              <div id='themesHost' class='th'></div>
             </div>
           </div>
           <div class='st-rule'></div>
@@ -1968,7 +1978,7 @@ namespace SearchBrowser
           <div class='sr'>
             <div class='sr-main'>
               <div class='sr-words'>
-                <div class='sr-title'>Search for Windows — v0.0009</div>
+                <div class='sr-title'>Search for Windows — v0.0010</div>
                 <div class='sr-detail'>Native Windows x64 + WebView2 port of driceroland/Search with Oriel UI design tokens. Lightweight ~290 KB executable, zero bundled Chromium or Electron overhead.</div>
               </div>
               <div class='sr-control'>
@@ -1983,8 +1993,16 @@ namespace SearchBrowser
   </div>
 </div>
 
-<script>
+<script>" + HomeThemesJs.RendererScript + @"
   var curSec = '" + Esc(activeSection) + @"';
+  var initialScrollY = " + initialScrollY + @";
+  var isDark = " + (dark ? "true" : "false") + @";
+  var curTabLayout = '" + Esc(tabLayout) + @"';
+  var curHomeTheme = '" + Esc(string.IsNullOrEmpty(p.HomeThemeId) ? "off" : p.HomeThemeId) + @"';
+  var curHomeTuning = " + (string.IsNullOrEmpty(p.HomeTuningJson) ? "{}" : p.HomeTuningJson) + @";
+  var curHomeShuffle = " + (p.HomeShuffle ? "true" : "false") + @";
+  var curHomeImageUri = '" + HomeThemesJs.GetCustomImageDataUri() + @"';
+
   function showSec(id) {
     curSec = id;
     document.querySelectorAll('.st-page').forEach(function(p) { p.classList.remove('on'); });
@@ -1994,6 +2012,7 @@ namespace SearchBrowser
     var target = document.getElementById('sec-' + id);
     if (target) target.classList.add('on');
     document.querySelectorAll('.sr, .st-line, .st-group, .st-rule').forEach(function(el) { el.style.display = ''; });
+    if (id === 'themes') renderThemesUi();
   }
 
   function toggleInfo(btn) {
@@ -2001,10 +2020,7 @@ namespace SearchBrowser
     var sr = btn.closest('.sr');
     if (!sr) return;
     var existing = sr.querySelector('.sr-more');
-    if (existing) {
-      existing.remove();
-      return;
-    }
+    if (existing) { existing.remove(); return; }
     var more = document.createElement('div');
     more.className = 'sr-more';
     more.textContent = btn.getAttribute('data-more') || btn.getAttribute('title') || '';
@@ -2013,16 +2029,12 @@ namespace SearchBrowser
 
   function filterSettings(q) {
     q = (q || '').trim().toLowerCase();
-    if (!q) {
-      showSec(curSec || 'general');
-      return;
-    }
+    if (!q) { showSec(curSec || 'general'); return; }
     document.querySelectorAll('.st-page').forEach(function(page) {
       var pageHas = false;
       page.querySelectorAll('.st-group').forEach(function(grp) {
         var grpHas = false;
-        var rows = grp.querySelectorAll('.sr, .st-line');
-        rows.forEach(function(r) {
+        grp.querySelectorAll('.sr, .st-line').forEach(function(r) {
           var hit = r.innerText.toLowerCase().indexOf(q) >= 0;
           r.style.display = hit ? '' : 'none';
           if (hit) grpHas = true;
@@ -2046,20 +2058,15 @@ namespace SearchBrowser
   document.addEventListener('keydown', function(e) {
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'f' || e.key === 'F')) {
       var fb = document.getElementById('findBox');
-      if (fb) {
-        e.preventDefault();
-        e.stopPropagation();
-        fb.focus();
-        fb.select();
-      }
+      if (fb) { e.preventDefault(); e.stopPropagation(); fb.focus(); fb.select(); }
     }
   });
 
   function act(action, arg) {
     var sc = document.querySelector('.st-content');
-    if (sc) sessionStorage.setItem('st_scroll', sc.scrollTop);
+    var sy = sc ? Math.round(sc.scrollTop) : 0;
     if (window.chrome && window.chrome.webview) {
-      window.chrome.webview.postMessage(JSON.stringify({ type: 'settingsAction', action: action, arg: arg || '', sec: curSec }));
+      window.chrome.webview.postMessage(JSON.stringify({ type: 'settingsAction', action: action, arg: arg || '', sec: curSec, scrollY: sy }));
     }
   }
 
@@ -2083,11 +2090,189 @@ namespace SearchBrowser
     act('setPref', prop + '=' + val);
   }
 
+  // Exact Oriel ThemesPage.tsx interactive UI (10 murals, 10 sticker packs, 6 swatches, 5 gradients, angle/intensity/density/scale, shuffle, custom image)
+  var WALL_LIST = [
+    ['openRoad','Open Road'],['desertHighway','Desert Highway'],['coastalCliffs','Coastal Cliffs'],
+    ['mountainLake','Mountain Lake'],['riceTerraces','Rice Terraces'],['northernLights','Northern Lights'],
+    ['saturnRise','Saturn Rise'],['moonscape','Moonscape'],['cityAtNight','City at Night'],['monsoonForest','Monsoon Forest']
+  ];
+  var PACK_LIST = [
+    ['space','Space'],['roadTrip','Road Trip'],['ocean','Ocean'],['jungle','Jungle'],['streetFood','Street Food'],
+    ['retroTech','Retro Tech'],['weather','Weather'],['music','Music'],['wonders','Wonders'],['search','Search']
+  ];
+  var GRAD_LIST = [
+    { id:'dusk', title:'Dusk', a:'#E9B8A0', b:'#8E86B8', angle:150 },
+    { id:'sea', title:'Sea', a:'#BFE0DC', b:'#5E8FA8', angle:160 },
+    { id:'peach', title:'Peach', a:'#FBE0C8', b:'#F0A58F', angle:135 },
+    { id:'mint', title:'Mint', a:'#DDF0DC', b:'#8FC7AA', angle:140 },
+    { id:'mono', title:'Mono', a:'#F1EFEB', b:'#B9B5AE', angle:90 }
+  ];
+  var SWATCHES = ['#E8DFD0','#F3D9CF','#D9E4D3','#D3DFEA','#E4D8EC','#2B2B2E'];
+  var FAMILIES = [['off','Off'],['wall','Wall painting'],['stickers','Stickers'],['solid','Solid colour'],['gradient','Gradient'],['image','Image']];
+  function familyOf(t) { return t==='off'?'off':t==='stickers'?'stickers':t==='solid'?'solid':t==='gradient'?'gradient':t==='custom'?'image':'wall'; }
+  var curFamily = familyOf(curHomeTheme);
+
+  function saveThemeState(reload) {
+    var payload = JSON.stringify({ theme: curHomeTheme, tuning: curHomeTuning, shuffle: curHomeShuffle });
+    act(reload ? 'saveHomeThemeReload' : 'saveHomeTheme', payload);
+  }
+
+  function renderThemesUi() {
+    var host = document.getElementById('themesHost');
+    if (!host) return;
+    curHomeTuning = Object.assign({ intensity:1, density:0.5, scale:0.5, pack:'space', solid:'#E8DFD0', gradientA:'#E9B8A0', gradientB:'#8E86B8', angle:150 }, curHomeTuning || {});
+    host.innerHTML = '';
+
+    // 1. Live miniature window preview (480x300)
+    var mock = document.createElement('div'); mock.className = 'th-mock';
+    if (curHomeTheme === 'custom' && curHomeImageUri) {
+      var im = document.createElement('img'); im.className = 'th-mock-canvas'; im.src = curHomeImageUri; mock.appendChild(im);
+      var vl = document.createElement('div'); vl.style.cssText = 'position:absolute;inset:0;background:var(--ground);opacity:' + Math.max(0, 1 - curHomeTuning.intensity); mock.appendChild(vl);
+    } else if (curHomeTheme !== 'off') {
+      var mc = document.createElement('canvas'); mc.className = 'th-mock-canvas'; mock.appendChild(mc);
+      setTimeout(function(){ if (window.__searchThemes) window.__searchThemes.renderTo(mc, curHomeTheme, curHomeTuning, isDark, curHomeShuffle, false); }, 0);
+    }
+    var mf = document.createElement('div'); mf.className = 'th-mock-field'; mf.textContent = 'Search or enter address'; mock.appendChild(mf);
+    var chrome = document.createElement('div');
+    chrome.className = curTabLayout === 'Top' ? 'th-mock-strip' : ('th-mock-column' + (curTabLayout === 'Right' ? ' right' : ''));
+    for (var b=0; b<4; b++) { var bar = document.createElement('span'); bar.className = 'th-bar'; chrome.appendChild(bar); }
+    mock.appendChild(chrome);
+    host.appendChild(mock);
+
+    // 2. Family segmented control
+    var seg = document.createElement('div'); seg.className = 'st-seg';
+    FAMILIES.forEach(function(pair) {
+      var btn = document.createElement('button');
+      btn.className = 'st-seg-btn' + (curFamily === pair[0] ? ' on' : '');
+      btn.textContent = pair[1];
+      btn.onclick = function() {
+        curFamily = pair[0];
+        if (pair[0] === 'off') curHomeTheme = 'off';
+        else if (pair[0] === 'wall' && familyOf(curHomeTheme) !== 'wall') curHomeTheme = 'openRoad';
+        else if (pair[0] === 'stickers') curHomeTheme = 'stickers';
+        else if (pair[0] === 'solid') curHomeTheme = 'solid';
+        else if (pair[0] === 'gradient') curHomeTheme = 'gradient';
+        else if (pair[0] === 'image' && curHomeImageUri) curHomeTheme = 'custom';
+        saveThemeState(false);
+        renderThemesUi();
+      };
+      seg.appendChild(btn);
+    });
+    host.appendChild(seg);
+
+    // 3. Family presets
+    if (curFamily === 'off') {
+      var note = document.createElement('div'); note.className = 'th-note'; note.textContent = 'The blank tab stays plain.'; host.appendChild(note);
+    } else if (curFamily === 'wall') {
+      var grid = document.createElement('div'); grid.className = 'th-grid';
+      WALL_LIST.forEach(function(pair) {
+        var card = makeThemeCard(pair[1], curHomeTheme === pair[0], function() { curHomeTheme = pair[0]; saveThemeState(false); renderThemesUi(); }, pair[0], curHomeTuning);
+        grid.appendChild(card);
+      });
+      host.appendChild(grid);
+    } else if (curFamily === 'stickers') {
+      var grid = document.createElement('div'); grid.className = 'th-grid';
+      PACK_LIST.forEach(function(pair) {
+        var tPack = Object.assign({}, curHomeTuning, { pack: pair[0] });
+        var card = makeThemeCard(pair[1], curHomeTheme === 'stickers' && curHomeTuning.pack === pair[0], function() { curHomeTheme = 'stickers'; curHomeTuning.pack = pair[0]; saveThemeState(false); renderThemesUi(); }, 'stickers', tPack);
+        grid.appendChild(card);
+      });
+      host.appendChild(grid);
+    } else if (curFamily === 'solid') {
+      var row = document.createElement('div'); row.className = 'th-solid';
+      SWATCHES.forEach(function(hex) {
+        var sw = document.createElement('button');
+        sw.className = 'th-swatch' + (curHomeTheme === 'solid' && (curHomeTuning.solid||'').toUpperCase() === hex ? ' on' : '');
+        sw.style.background = hex;
+        sw.onclick = function() { curHomeTheme = 'solid'; curHomeTuning.solid = hex; saveThemeState(false); renderThemesUi(); };
+        row.appendChild(sw);
+      });
+      row.appendChild(makeColorWell('Colour', curHomeTuning.solid, function(hex){ curHomeTheme = 'solid'; curHomeTuning.solid = hex; saveThemeState(false); renderThemesUi(); }));
+      host.appendChild(row);
+    } else if (curFamily === 'gradient') {
+      var gWrap = document.createElement('div'); gWrap.className = 'th-gradient';
+      var grid = document.createElement('div'); grid.className = 'th-grid';
+      GRAD_LIST.forEach(function(g) {
+        var tg = Object.assign({}, curHomeTuning, { gradientA: g.a, gradientB: g.b, angle: g.angle });
+        var isOn = curHomeTheme === 'gradient' && curHomeTuning.gradientA === g.a && curHomeTuning.gradientB === g.b;
+        grid.appendChild(makeThemeCard(g.title, isOn, function() { curHomeTheme = 'gradient'; curHomeTuning.gradientA = g.a; curHomeTuning.gradientB = g.b; curHomeTuning.angle = g.angle; saveThemeState(false); renderThemesUi(); }, 'gradient', tg));
+      });
+      gWrap.appendChild(grid);
+      var wells = document.createElement('div'); wells.className = 'th-wells';
+      wells.appendChild(makeColorWell('From', curHomeTuning.gradientA, function(hex){ curHomeTheme = 'gradient'; curHomeTuning.gradientA = hex; saveThemeState(false); renderThemesUi(); }));
+      wells.appendChild(makeColorWell('To', curHomeTuning.gradientB, function(hex){ curHomeTheme = 'gradient'; curHomeTuning.gradientB = hex; saveThemeState(false); renderThemesUi(); }));
+      gWrap.appendChild(wells);
+      gWrap.appendChild(makeSlider('Angle', curHomeTuning.angle, 360, '°', function(v){ curHomeTheme = 'gradient'; curHomeTuning.angle = Math.round(v); saveThemeState(false); renderThemesUi(); }));
+      host.appendChild(gWrap);
+    } else if (curFamily === 'image') {
+      var imgRow = document.createElement('div'); imgRow.className = 'th-image';
+      var frame = document.createElement('div'); frame.className = 'th-image-frame';
+      if (curHomeImageUri) { var img = document.createElement('img'); img.src = curHomeImageUri; frame.appendChild(img); }
+      else { frame.innerHTML = '<svg width=18 height=18 viewBox=""0 0 16 16"" fill=none stroke=currentColor stroke-width=1.3><rect x=1.8 y=3 width=12.4 height=10 rx=2 /><path d=""m2.4 11.6 3.4-3.4 2.6 2.6 1.8-1.8 3.4 3.2"" /><circle cx=10.6 cy=6.2 r=1.1 /></svg>'; }
+      imgRow.appendChild(frame);
+      var side = document.createElement('div'); side.className = 'th-image-side';
+      var pickBtn = document.createElement('button'); pickBtn.className = 'pill-st'; pickBtn.textContent = 'Choose Image…'; pickBtn.onclick = function() { act('chooseBgImage'); }; side.appendChild(pickBtn);
+      if (curHomeImageUri) { var rmBtn = document.createElement('button'); rmBtn.className = 'pill-st'; rmBtn.textContent = 'Remove'; rmBtn.onclick = function() { act('removeBgImage'); }; side.appendChild(rmBtn); }
+      var sm = document.createElement('div'); sm.className = 'th-small'; sm.textContent = 'A copy is kept inside Search.'; side.appendChild(sm);
+      imgRow.appendChild(side);
+      host.appendChild(imgRow);
+    }
+
+    // 4. Shuffle checkbox for Wall & Stickers
+    if (curFamily === 'wall' || curFamily === 'stickers') {
+      var shLbl = document.createElement('label'); shLbl.className = 'th-check';
+      var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = curHomeShuffle;
+      cb.onchange = function() { curHomeShuffle = cb.checked; saveThemeState(false); renderThemesUi(); };
+      shLbl.appendChild(cb); shLbl.appendChild(document.createTextNode('Shuffle: a different one each day'));
+      host.appendChild(shLbl);
+    }
+
+    // 5. Sliders (Intensity, and Density + Scale for Stickers)
+    if (curFamily !== 'off' && (curFamily !== 'image' || !!curHomeImageUri)) {
+      var sl = document.createElement('div'); sl.className = 'th-sliders';
+      sl.appendChild(makeSlider('Intensity', curHomeTuning.intensity * 100, 100, '%', function(v){ curHomeTuning.intensity = v / 100; saveThemeState(false); renderThemesUi(); }));
+      if (curFamily === 'stickers') {
+        sl.appendChild(makeSlider('Density', curHomeTuning.density * 100, 100, '%', function(v){ curHomeTuning.density = v / 100; saveThemeState(false); renderThemesUi(); }));
+        sl.appendChild(makeSlider('Scale', curHomeTuning.scale * 100, 100, '%', function(v){ curHomeTuning.scale = v / 100; saveThemeState(false); renderThemesUi(); }));
+      }
+      host.appendChild(sl);
+    }
+  }
+
+  function makeThemeCard(title, isOn, onPick, themeId, tuningObj) {
+    var btn = document.createElement('button'); btn.className = 'th-card' + (isOn ? ' on' : ''); btn.onclick = onPick;
+    var ring = document.createElement('span'); ring.className = 'th-ring';
+    var thumb = document.createElement('span'); thumb.className = 'th-thumb';
+    var cv = document.createElement('canvas'); thumb.appendChild(cv);
+    ring.appendChild(thumb); btn.appendChild(ring);
+    var nm = document.createElement('span'); nm.className = 'th-name'; nm.textContent = title; btn.appendChild(nm);
+    setTimeout(function(){ if (window.__searchThemes) window.__searchThemes.renderTo(cv, themeId, tuningObj, isDark, false, true); }, 0);
+    return btn;
+  }
+
+  function makeColorWell(label, hex, onSet) {
+    var row = document.createElement('label'); row.className = 'th-well-row';
+    var sp = document.createElement('span'); sp.textContent = label; row.appendChild(sp);
+    var well = document.createElement('span'); well.className = 'th-well'; well.style.background = hex || '#E8DFD0';
+    var inp = document.createElement('input'); inp.type = 'color'; inp.value = (hex || '#E8DFD0').toLowerCase();
+    inp.onchange = function() { onSet(inp.value.toUpperCase()); };
+    well.appendChild(inp); row.appendChild(well); return row;
+  }
+
+  function makeSlider(label, value, max, unit, onCommit) {
+    var row = document.createElement('div'); row.className = 'th-slider';
+    var tl = document.createElement('span'); tl.className = 'th-slider-title'; tl.textContent = label; row.appendChild(tl);
+    var inp = document.createElement('input'); inp.type = 'range'; inp.min = '0'; inp.max = String(max); inp.value = String(Math.round(value));
+    var vl = document.createElement('span'); vl.className = 'th-slider-value'; vl.textContent = Math.round(value) + unit;
+    inp.oninput = function() { vl.textContent = Math.round(Number(inp.value)) + unit; };
+    inp.onchange = function() { onCommit(Number(inp.value)); };
+    row.appendChild(inp); row.appendChild(vl); return row;
+  }
+
   showSec(curSec);
   (function() {
     var sc = document.querySelector('.st-content');
-    var y = parseInt(sessionStorage.getItem('st_scroll') || '0', 10);
-    if (sc && y > 0) sc.scrollTop = y;
+    if (sc && initialScrollY > 0) sc.scrollTop = initialScrollY;
   })();
 </script>
 </body>

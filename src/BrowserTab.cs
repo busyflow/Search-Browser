@@ -451,13 +451,13 @@ namespace SearchBrowser
             WebView.CoreWebView2.NavigateToString(InternalPagesHtml.BuildNewTabHtml());
         }
 
-        public void RenderSettingsTab(string section = "general")
+        public void RenderSettingsTab(string section = "general", int scrollY = 0)
         {
             if (WebView == null || !IsWebViewInitialized || WebView.CoreWebView2 == null) return;
             Url = "search://settings/" + section;
             Title = "Settings";
             FaviconUrl = "";
-            WebView.CoreWebView2.NavigateToString(InternalPagesHtml.BuildSettingsTabHtml(section));
+            WebView.CoreWebView2.NavigateToString(InternalPagesHtml.BuildSettingsTabHtml(section, scrollY));
         }
 
         public void RenderHistoryTab()

@@ -156,7 +156,12 @@ namespace SearchBrowser
 
         [DataMember] public string BlankWallMode { get; set; }
         [DataMember] public string BlankWallCustomValue { get; set; }
+        [DataMember] public string HomeThemeId { get; set; }
+        [DataMember] public string HomeTuningJson { get; set; }
+        [DataMember] public bool HomeShuffle { get; set; }
+        [DataMember] public string HomeImagePath { get; set; }
         [DataMember] public string WindowButtonsStyle { get; set; }
+        [DataMember] public int PrefsMigrationVersion { get; set; }
 
         [DataMember] public string NewTabPosition { get; set; }
         [DataMember] public bool LinksInFrontBesidePage { get; set; }
@@ -237,6 +242,10 @@ namespace SearchBrowser
             ShowExtBtn = true;
             ShowBookmarksBtn = true;
             ShowProfileBtn = true;
+            DimSleepingTabs = true;
+            ShowPlayingInOtherTabs = true;
+            ShowCountsOnPins = true;
+            PrefsMigrationVersion = 2;
             OpenExternalInSmallWindow = true;
             ShowAddressOnActiveTab = true;
             PinsKeepSite = true;
@@ -280,6 +289,24 @@ namespace SearchBrowser
             if (string.IsNullOrEmpty(TabsShowMode)) TabsShowMode = "Letters";
             if (string.IsNullOrEmpty(BlankWallMode)) BlankWallMode = "Off";
             if (BlankWallCustomValue == null) BlankWallCustomValue = "";
+            if (string.IsNullOrEmpty(HomeThemeId)) HomeThemeId = "off";
+            if (string.IsNullOrEmpty(HomeTuningJson)) HomeTuningJson = "{\"angle\":150,\"density\":0.5,\"gradientA\":\"#E9B8A0\",\"gradientB\":\"#8E86B8\",\"intensity\":1,\"pack\":\"space\",\"scale\":0.5,\"solid\":\"#E8DFD0\"}";
+            if (HomeImagePath == null) HomeImagePath = "";
+            if (PrefsMigrationVersion < 2)
+            {
+                // Repair booleans that deserialized as false when upgrading from pre-v0.0009 prefs.json
+                if (!ShowBookmarksBtn && !ShowBackBtn && !ShowForwardBtn && !ShowReloadBtn)
+                {
+                    ShowBookmarksBtn = true;
+                    ShowBackBtn = true;
+                    ShowForwardBtn = true;
+                    ShowReloadBtn = true;
+                    ShowExtBtn = true;
+                    ShowProfileBtn = true;
+                }
+                DimSleepingTabs = true;
+                PrefsMigrationVersion = 2;
+            }
             if (string.IsNullOrEmpty(WindowButtonsStyle)) WindowButtonsStyle = "Inline";
             if (string.IsNullOrEmpty(NewTabPosition)) NewTabPosition = "After current";
             if (string.IsNullOrEmpty(SleepLevel)) SleepLevel = "Normal";

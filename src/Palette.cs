@@ -75,18 +75,18 @@ namespace SearchBrowser
                 CardSurface = Ground;                                // #1C1C1C
                 OverlayScrim = Freeze(Color.FromArgb(189, 28, 28, 28)); // 74%
 
-                FrameWash = Freeze(Color.FromArgb(22, 255, 255, 255));    // .0865
-                FrameHover = Freeze(Color.FromArgb(15, 255, 255, 255));   // .0595
-                FrameTile = Freeze(Color.FromArgb(11, 255, 255, 255));    // .0432
-                FramePinLive = Freeze(Color.FromArgb(32, 255, 255, 255)); // .1243
-                FrameMuted = Freeze(Color.FromArgb(139, 255, 255, 255));  // .5459
-                FrameFaint = Freeze(Color.FromArgb(68, 255, 255, 255));   // .2649
+                FrameWash = Freeze(Color.FromArgb(24, 255, 255, 255));    // .094
+                FrameHover = Freeze(Color.FromArgb(18, 255, 255, 255));   // .070
+                FrameTile = Freeze(Color.FromArgb(18, 255, 255, 255));    // .070 (clear pin tile contrast)
+                FramePinLive = Freeze(Color.FromArgb(38, 255, 255, 255)); // .149
+                FrameMuted = Freeze(Color.FromArgb(148, 255, 255, 255));  // .580
+                FrameFaint = Freeze(Color.FromArgb(74, 255, 255, 255));   // .290
 
-                InkHoverText = Freeze(Color.FromArgb(179, 237, 237, 237));    // .70
-                InkMarkBg = Freeze(Color.FromArgb(15, 237, 237, 237));        // .06
-                InkCloseDisc = Freeze(Color.FromArgb(18, 237, 237, 237));     // .07
-                InkGhostEdge = Freeze(Color.FromArgb(41, 237, 237, 237));     // .16
-                InkPickedOutline = Freeze(Color.FromArgb(89, 237, 237, 237)); // .35
+                InkHoverText = Freeze(Color.FromArgb(190, 237, 237, 237));    // .75
+                InkMarkBg = Freeze(Color.FromArgb(18, 237, 237, 237));        // .07
+                InkCloseDisc = Freeze(Color.FromArgb(22, 237, 237, 237));     // .086
+                InkGhostEdge = Freeze(Color.FromArgb(78, 237, 237, 237));     // .30 (clear drop ghost outline)
+                InkPickedOutline = Freeze(Color.FromArgb(95, 237, 237, 237)); // .37
                 CardEdge = Freeze(Color.FromArgb(20, 255, 255, 255));         // .08
 
                 MenuBg = Freeze(Color.FromArgb(247, 40, 40, 40));             // rgba(40,40,40,.97)
@@ -113,10 +113,10 @@ namespace SearchBrowser
                 CardSurface = Ground;                                // #FFFFFF
                 OverlayScrim = Freeze(Color.FromArgb(189, 255, 255, 255)); // 74%
 
-                FrameWash = Freeze(Color.FromArgb(16, 0, 0, 0));     // .0628
-                FrameHover = Freeze(Color.FromArgb(11, 0, 0, 0));    // .0419
-                FrameTile = Freeze(Color.FromArgb(8, 0, 0, 0));      // .0314
-                FramePinLive = Freeze(Color.FromArgb(25, 0, 0, 0));  // .0995
+                FrameWash = Freeze(Color.FromArgb(18, 0, 0, 0));     // .07
+                FrameHover = Freeze(Color.FromArgb(13, 0, 0, 0));    // .05
+                FrameTile = Freeze(Color.FromArgb(13, 0, 0, 0));     // .05
+                FramePinLive = Freeze(Color.FromArgb(28, 0, 0, 0));  // .11
                 FrameMuted = Freeze(Color.FromArgb(108, 0, 0, 0));   // .4241
                 FrameFaint = Freeze(Color.FromArgb(33, 0, 0, 0));    // .1309
 
