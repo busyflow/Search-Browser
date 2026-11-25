@@ -1521,14 +1521,19 @@ namespace SearchBrowser
                     {
                         if (Store.Prefs.SidebarCollapsed)
                         {
+                            _sidebarBorder.Visibility = Visibility.Collapsed;
                             _sidebarBorder.BeginAnimation(FrameworkElement.WidthProperty, null);
-                            ApplyLayoutPreferences(false);
+                            _sidebarBorder.Width = targetW;
+                            _sidebarHoverHotzone.Visibility = Visibility.Visible;
+                            if (Store.Prefs.PageAsCard) _pageCardBorder.Margin = new Thickness(8, 0, 8, 8);
                         }
                     };
                     _sidebarBorder.BeginAnimation(FrameworkElement.WidthProperty, anim);
                 }
                 else
                 {
+                    bool isRight = string.Equals(Store.Prefs.TabLayout, "Right", StringComparison.OrdinalIgnoreCase);
+                    if (Store.Prefs.PageAsCard) _pageCardBorder.Margin = isRight ? new Thickness(8, 0, 0, 8) : new Thickness(0, 0, 8, 8);
                     _sidebarBorder.Width = 0;
                     _sidebarBorder.Visibility = Visibility.Visible;
                     _sidebarHoverHotzone.Visibility = Visibility.Collapsed;
@@ -1541,7 +1546,7 @@ namespace SearchBrowser
                         if (!Store.Prefs.SidebarCollapsed)
                         {
                             _sidebarBorder.BeginAnimation(FrameworkElement.WidthProperty, null);
-                            ApplyLayoutPreferences(false);
+                            _sidebarBorder.Width = targetW;
                         }
                     };
                     _sidebarBorder.BeginAnimation(FrameworkElement.WidthProperty, anim);
