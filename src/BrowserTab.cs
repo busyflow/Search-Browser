@@ -352,13 +352,18 @@ namespace SearchBrowser
 
             core.DownloadStarting += (s, e) =>
             {
-                if (Store.Prefs != null && !Store.Prefs.AskWhereToSave && !string.IsNullOrWhiteSpace(Store.Prefs.DownloadsFolder) && Store.Prefs.DownloadsFolder != "~\\Downloads" && Directory.Exists(Store.Prefs.DownloadsFolder))
+                string targetDir = Store.Prefs != null ? Store.Prefs.DownloadsFolder : "";
+                var activeSp = Store.Spaces != null ? Store.Spaces.Find(sp => string.Equals(sp.Id, SpaceId, StringComparison.OrdinalIgnoreCase)) : null;
+                if (activeSp != null && !string.IsNullOrWhiteSpace(activeSp.DownloadsFolder) && Directory.Exists(activeSp.DownloadsFolder))
+                    targetDir = activeSp.DownloadsFolder;
+
+                if (Store.Prefs != null && !Store.Prefs.AskWhereToSave && !string.IsNullOrWhiteSpace(targetDir) && targetDir != "~\\Downloads" && Directory.Exists(targetDir))
                 {
                     try
                     {
                         string fname = Path.GetFileName(e.ResultFilePath);
                         if (!string.IsNullOrEmpty(fname))
-                            e.ResultFilePath = Path.Combine(Store.Prefs.DownloadsFolder, fname);
+                            e.ResultFilePath = Path.Combine(targetDir, fname);
                     }
                     catch { }
                 }

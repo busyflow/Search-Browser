@@ -1704,11 +1704,58 @@ namespace SearchBrowser
             return fallback;
         }
 
+        private static Color BlendColor(Color baseC, Color tintC, double amount)
+        {
+            double t = Math.Max(0.0, Math.Min(1.0, amount));
+            return Color.FromRgb(
+                (byte)Math.Round(baseC.R * (1.0 - t) + tintC.R * t),
+                (byte)Math.Round(baseC.G * (1.0 - t) + tintC.G * t),
+                (byte)Math.Round(baseC.B * (1.0 - t) + tintC.B * t));
+        }
+
+        private static bool TryGetSpaceColorSpec(string key, out Color c1, out Color c2, out bool isGradient)
+        {
+            isGradient = false;
+            c1 = Colors.Transparent;
+            c2 = Colors.Transparent;
+            switch ((key ?? "").ToLowerInvariant())
+            {
+                case "blue": c1 = Color.FromRgb(0x3B, 0x82, 0xF6); return true;
+                case "green": c1 = Color.FromRgb(0x2E, 0xAD, 0x6B); return true;
+                case "orange": c1 = Color.FromRgb(0xF5, 0x9E, 0x2D); return true;
+                case "red": c1 = Color.FromRgb(0xE6, 0x53, 0x63); return true;
+                case "purple": c1 = Color.FromRgb(0x9B, 0x6B, 0xF2); return true;
+                case "sunset": c1 = Color.FromRgb(0xE8, 0x9B, 0x46); c2 = Color.FromRgb(0xE4, 0x6B, 0x84); isGradient = true; return true;
+                case "ocean": c1 = Color.FromRgb(0x1D, 0xB9, 0xA6); c2 = Color.FromRgb(0x3B, 0x9E, 0xE8); isGradient = true; return true;
+                case "mint": c1 = Color.FromRgb(0x7E, 0xC8, 0x5A); c2 = Color.FromRgb(0x22, 0xB8, 0x88); isGradient = true; return true;
+                case "berry": c1 = Color.FromRgb(0xA8, 0x75, 0xF2); c2 = Color.FromRgb(0xE5, 0x73, 0x99); isGradient = true; return true;
+                case "sky": c1 = Color.FromRgb(0x25, 0xB6, 0xD9); c2 = Color.FromRgb(0x5E, 0x8C, 0xF4); isGradient = true; return true;
+                case "amber": c1 = Color.FromRgb(0xE5, 0x7E, 0x48); c2 = Color.FromRgb(0xE4, 0xAE, 0x3C); isGradient = true; return true;
+                default: return false;
+            }
+        }
+
         private void ApplyChromeThemeBrush()
         {
             if (_topTabBarBorder == null || _sidebarBorder == null) return;
-            // Exact macOS Search behavior: outer frame/sidebar stays Palette.Frame (#131313 dark / #F4F4F4 light),
-            // while Home background themes paint only the blank New Tab (about:blank).
+            var sp = (Store.Spaces != null && Store.Prefs != null)
+                ? Store.Spaces.FirstOrDefault(s => string.Equals(s.Id, Store.Prefs.ActiveSpaceId, StringComparison.OrdinalIgnoreCase))
+                : null;
+            Color c1, c2;
+            bool isGrad;
+            if (sp != null && TryGetSpaceColorSpec(sp.ColorKey, out c1, out c2, out isGrad))
+            {
+                string st = (sp.ColorStrength ?? "Subtle").ToLowerInvariant();
+                double amt = st == "vivid" ? 0.62 : (st == "rich" ? 0.38 : 0.20);
+                Color frameBase = Palette.Frame.Color;
+                if (isGrad)
+                    Background = new LinearGradientBrush(BlendColor(frameBase, c1, amt), BlendColor(frameBase, c2, amt), 135.0);
+                else
+                    Background = new SolidColorBrush(BlendColor(frameBase, c1, amt));
+                _topTabBarBorder.Background = Brushes.Transparent;
+                _sidebarBorder.Background = Brushes.Transparent;
+                return;
+            }
             Background = Palette.Frame;
             _topTabBarBorder.Background = Palette.Frame;
             _sidebarBorder.Background = Palette.Frame;
@@ -3204,6 +3251,12 @@ namespace SearchBrowser
         {
             var sp = Store.Spaces.FirstOrDefault(s => s.Id == Store.Prefs.ActiveSpaceId) ?? Store.Spaces[0];
             _spaceTitleText.Text = "●  " + sp.Name;
+            if (_spaceFooterBtn != null)
+            {
+                _spaceFooterBtn.Child = VectorIcons.Draw(VectorIcons.GetSpaceIconPath(sp.IconName), Palette.FrameMuted, 13, 1.5);
+                _spaceFooterBtn.ToolTip = sp.Name + " (Alt+1..9)";
+            }
+            ApplyChromeThemeBrush();
 
             if (_spaceDotsPanel != null)
             {
@@ -3817,6 +3870,59 @@ namespace SearchBrowser
             return row;
         }
 
+        private void AddIconPopupMenuItem(System.Windows.Controls.Primitives.Popup popup, StackPanel stack, bool isChecked, string iconPath, string title, string shortcut, Action action, bool enabled = true)
+        {
+            var row = new Border
+            {
+                Height = 26,
+                CornerRadius = new CornerRadius(7),
+                Padding = new Thickness(7, 0, 9, 0),
+                Margin = new Thickness(0, 1, 0, 1),
+                Background = Brushes.Transparent,
+                Cursor = enabled ? Cursors.Hand : Cursors.Arrow,
+                Opacity = enabled ? 1.0 : 0.42
+            };
+            var dock = new DockPanel();
+            if (!string.IsNullOrEmpty(shortcut))
+            {
+                var sc = new TextBlock
+                {
+                    Text = shortcut,
+                    FontSize = 11.5,
+                    Foreground = Palette.MenuSecondary,
+                    Margin = new Thickness(16, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                DockPanel.SetDock(sc, Dock.Right);
+                dock.Children.Add(sc);
+            }
+            var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var chkBox = new Grid { Width = 14, Height = 14, Margin = new Thickness(0, 0, 4, 0) };
+            if (isChecked) chkBox.Children.Add(VectorIcons.Draw(VectorIcons.CheckPath, Palette.Ink, 11, 1.6));
+            left.Children.Add(chkBox);
+            if (!string.IsNullOrEmpty(iconPath))
+            {
+                var icoBox = new Grid { Width = 15, Height = 15, Margin = new Thickness(0, 0, 7, 0) };
+                icoBox.Children.Add(VectorIcons.Draw(iconPath, Palette.FrameMuted, 13, 1.45));
+                left.Children.Add(icoBox);
+            }
+            left.Children.Add(new TextBlock { Text = title, FontSize = 13, Foreground = Palette.Ink, VerticalAlignment = VerticalAlignment.Center });
+            dock.Children.Add(left);
+            row.Child = dock;
+            if (enabled)
+            {
+                row.MouseEnter += (s, e) => row.Background = Palette.MenuHot;
+                row.MouseLeave += (s, e) => row.Background = Brushes.Transparent;
+                row.MouseLeftButtonUp += (s, e) =>
+                {
+                    e.Handled = true;
+                    popup.IsOpen = false;
+                    action();
+                };
+            }
+            stack.Children.Add(row);
+        }
+
         private void ShowSpacesMenu(FrameworkElement anchor)
         {
             StackPanel stack;
@@ -3826,24 +3932,27 @@ namespace SearchBrowser
                 var sp = Store.Spaces[i];
                 int idx = i;
                 bool isCur = string.Equals(sp.Id, Store.Prefs.ActiveSpaceId, StringComparison.OrdinalIgnoreCase);
-                AddPopupMenuItem(popup, stack, (isCur ? "✓  " : "     ") + sp.Name, i < 9 ? "Alt+" + (i + 1) : "", () => CycleSpace(idx));
+                AddIconPopupMenuItem(popup, stack, isCur, VectorIcons.GetSpaceIconPath(sp.IconName), sp.Name, i < 9 ? "Alt+" + (i + 1) : "", () => CycleSpace(idx));
             }
             AddPopupSeparator(stack);
-            AddPopupMenuItem(popup, stack, "New Space…", "", () =>
+            AddIconPopupMenuItem(popup, stack, false, null, "New Space…", "", () =>
             {
                 string name = PromptForText("New Space", "Enter a name for the new Space:", "Space " + (Store.Spaces.Count + 1));
                 if (!string.IsNullOrWhiteSpace(name))
                 {
-                    var ns = new SpaceItem { Id = Guid.NewGuid().ToString("N").Substring(0, 8), Name = name.Trim(), AccentHex = "" };
+                    var ns = new SpaceItem { Id = Guid.NewGuid().ToString("N").Substring(0, 8), Name = name.Trim(), AccentHex = "", IconName = "Home", ColorKey = "", ColorStrength = "Subtle", DownloadsFolder = "" };
                     Store.Spaces.Add(ns);
                     Store.SaveSpaces();
                     CycleSpace(Store.Spaces.Count - 1);
                 }
             });
-            var curSp = Store.Spaces.FirstOrDefault(s => string.Equals(s.Id, Store.Prefs.ActiveSpaceId, StringComparison.OrdinalIgnoreCase));
+
+            int curIdx = Store.Spaces.FindIndex(s => string.Equals(s.Id, Store.Prefs.ActiveSpaceId, StringComparison.OrdinalIgnoreCase));
+            var curSp = curIdx >= 0 ? Store.Spaces[curIdx] : (Store.Spaces.Count > 0 ? Store.Spaces[0] : null);
             if (curSp != null)
             {
-                AddPopupMenuItem(popup, stack, "Rename \"" + curSp.Name + "\"…", "", () =>
+                AddPopupSeparator(stack);
+                AddIconPopupMenuItem(popup, stack, false, null, "Rename “" + curSp.Name + "”…", "", () =>
                 {
                     string name = PromptForText("Rename Space", "Space name:", curSp.Name);
                     if (!string.IsNullOrWhiteSpace(name))
@@ -3853,9 +3962,186 @@ namespace SearchBrowser
                         RefreshSpaceHeader();
                     }
                 });
+                AddIconPopupMenuItem(popup, stack, false, null, "Icon", "›", () => ShowSpaceIconPicker(anchor, curSp));
+                AddIconPopupMenuItem(popup, stack, false, null, "Colour…", "", () => ShowSpaceColourPicker(anchor, curSp));
+                if (curIdx > 0)
+                {
+                    AddIconPopupMenuItem(popup, stack, false, null, "Move Left", "", () =>
+                    {
+                        Store.Spaces.RemoveAt(curIdx);
+                        Store.Spaces.Insert(curIdx - 1, curSp);
+                        Store.SaveSpaces();
+                        RefreshSpaceHeader();
+                    });
+                }
+                if (curIdx >= 0 && curIdx < Store.Spaces.Count - 1)
+                {
+                    AddIconPopupMenuItem(popup, stack, false, null, "Move Right", "", () =>
+                    {
+                        Store.Spaces.RemoveAt(curIdx);
+                        Store.Spaces.Insert(curIdx + 1, curSp);
+                        Store.SaveSpaces();
+                        RefreshSpaceHeader();
+                    });
+                }
+                AddIconPopupMenuItem(popup, stack, false, null, "Downloads", "›", () => ShowSpaceDownloadsMenu(anchor, curSp));
+                AddPopupSeparator(stack);
+                AddIconPopupMenuItem(popup, stack, false, null, "Delete “" + curSp.Name + "”…", "", () =>
+                {
+                    if (Store.Spaces.Count <= 1) return;
+                    if (MessageBox.Show("Delete space “" + curSp.Name + "” and close its tabs?", "Delete Space", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+                    var toClose = _allTabs.Where(t => string.Equals(t.SpaceId, curSp.Id, StringComparison.OrdinalIgnoreCase) && !t.KeepInEverySpace).ToList();
+                    foreach (var t in toClose) CloseTab(t, true, true);
+                    Store.Spaces.Remove(curSp);
+                    Store.SaveSpaces();
+                    CycleSpace(Math.Max(0, Math.Min(curIdx, Store.Spaces.Count - 1)));
+                }, Store.Spaces.Count > 1);
+            }
+            popup.IsOpen = true;
+        }
+
+        private void ShowSpaceIconPicker(FrameworkElement anchor, SpaceItem sp)
+        {
+            StackPanel stack;
+            var popup = CreateThemedPopupMenu(anchor, System.Windows.Controls.Primitives.PlacementMode.Top, out stack);
+            string curIcon = string.IsNullOrEmpty(sp.IconName) ? "Home" : sp.IconName;
+            foreach (var iconName in VectorIcons.SpaceIconNames)
+            {
+                string capName = iconName;
+                bool isSel = string.Equals(curIcon, capName, StringComparison.OrdinalIgnoreCase);
+                AddIconPopupMenuItem(popup, stack, isSel, VectorIcons.GetSpaceIconPath(capName), capName, "", () =>
+                {
+                    sp.IconName = capName;
+                    Store.SaveSpaces();
+                    RefreshSpaceHeader();
+                });
+            }
+            popup.IsOpen = true;
+        }
+
+        private void ShowSpaceColourPicker(FrameworkElement anchor, SpaceItem sp)
+        {
+            StackPanel stack;
+            var popup = CreateThemedPopupMenu(anchor, System.Windows.Controls.Primitives.PlacementMode.Top, out stack);
+            stack.MinWidth = 220;
+            stack.Margin = new Thickness(6, 4, 6, 4);
+
+            string[] row1 = new[] { "", "blue", "green", "orange", "red", "purple" };
+            string[] row2 = new[] { "sunset", "ocean", "mint", "berry", "sky", "amber" };
+            string curKey = sp.ColorKey ?? "";
+            string curStrength = string.IsNullOrEmpty(sp.ColorStrength) ? "Subtle" : sp.ColorStrength;
+
+            Func<string, Border> makeSwatch = (key) =>
+            {
+                bool isSel = string.Equals(curKey, key, StringComparison.OrdinalIgnoreCase);
+                Brush fill = Brushes.Transparent;
+                Color c1, c2;
+                bool isGrad;
+                if (TryGetSpaceColorSpec(key, out c1, out c2, out isGrad))
+                {
+                    fill = isGrad ? (Brush)new LinearGradientBrush(c1, c2, 135.0) : new SolidColorBrush(c1);
+                }
+                var circle = new Border
+                {
+                    Width = 26,
+                    Height = 26,
+                    CornerRadius = new CornerRadius(13),
+                    Margin = new Thickness(4),
+                    Background = fill,
+                    BorderBrush = isSel ? Palette.Ink : (string.IsNullOrEmpty(key) ? Palette.FrameFaint : Brushes.Transparent),
+                    BorderThickness = new Thickness(isSel ? 2 : (string.IsNullOrEmpty(key) ? 1.5 : 0)),
+                    Cursor = Cursors.Hand,
+                    ToolTip = string.IsNullOrEmpty(key) ? "None" : (char.ToUpper(key[0]) + key.Substring(1))
+                };
+                if (string.IsNullOrEmpty(key))
+                {
+                    circle.Child = VectorIcons.Draw("M 3.5,12.5 L 12.5,3.5", Palette.FrameMuted, 13, 1.3);
+                }
+                circle.MouseLeftButtonUp += (s, e) =>
+                {
+                    e.Handled = true;
+                    sp.ColorKey = key;
+                    Store.SaveSpaces();
+                    ApplyChromeThemeBrush();
+                    popup.IsOpen = false;
+                };
+                return circle;
+            };
+
+            var r1Panel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+            foreach (var k in row1) r1Panel.Children.Add(makeSwatch(k));
+            stack.Children.Add(r1Panel);
+
+            var r2Panel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 8) };
+            foreach (var k in row2) r2Panel.Children.Add(makeSwatch(k));
+            stack.Children.Add(r2Panel);
+
+            var strengthRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+            foreach (var stName in new[] { "Subtle", "Rich", "Vivid" })
+            {
+                string capSt = stName;
+                bool isSel = string.Equals(curStrength, capSt, StringComparison.OrdinalIgnoreCase);
+                var pill = new Border
+                {
+                    CornerRadius = new CornerRadius(13),
+                    Padding = new Thickness(12, 5, 12, 5),
+                    Margin = new Thickness(3, 0, 3, 2),
+                    Background = isSel ? Palette.Ink : Palette.FrameWash,
+                    Cursor = Cursors.Hand,
+                    Child = new TextBlock
+                    {
+                        Text = capSt,
+                        FontSize = 12,
+                        FontWeight = isSel ? FontWeights.SemiBold : FontWeights.Normal,
+                        Foreground = isSel ? Palette.Ground : Palette.Ink
+                    }
+                };
+                pill.MouseLeftButtonUp += (s, e) =>
+                {
+                    e.Handled = true;
+                    sp.ColorStrength = capSt;
+                    Store.SaveSpaces();
+                    ApplyChromeThemeBrush();
+                    popup.IsOpen = false;
+                };
+                strengthRow.Children.Add(pill);
+            }
+            stack.Children.Add(strengthRow);
+            popup.IsOpen = true;
+        }
+
+        private void ShowSpaceDownloadsMenu(FrameworkElement anchor, SpaceItem sp)
+        {
+            StackPanel stack;
+            var popup = CreateThemedPopupMenu(anchor, System.Windows.Controls.Primitives.PlacementMode.Top, out stack);
+            bool isDefault = string.IsNullOrWhiteSpace(sp.DownloadsFolder);
+            AddIconPopupMenuItem(popup, stack, isDefault, null, "Same as Settings", "", () =>
+            {
+                sp.DownloadsFolder = "";
+                Store.SaveSpaces();
+            });
+            if (!isDefault)
+            {
+                AddIconPopupMenuItem(popup, stack, true, null, Path.GetFileName(sp.DownloadsFolder), "", () => { }, false);
             }
             AddPopupSeparator(stack);
-            AddPopupMenuItem(popup, stack, "Downloads", "Ctrl+J", () => ShowDownloadsDrawer());
+            AddIconPopupMenuItem(popup, stack, false, null, "Choose Folder…", "", () =>
+            {
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                {
+                    using (var fbd = new System.Windows.Forms.FolderBrowserDialog())
+                    {
+                        fbd.Description = "Choose Downloads folder for " + sp.Name + ":";
+                        if (!string.IsNullOrWhiteSpace(sp.DownloadsFolder) && Directory.Exists(sp.DownloadsFolder))
+                            fbd.SelectedPath = sp.DownloadsFolder;
+                        if (fbd.ShowDialog(GetWin32Owner()) == System.Windows.Forms.DialogResult.OK && !string.IsNullOrWhiteSpace(fbd.SelectedPath))
+                        {
+                            sp.DownloadsFolder = fbd.SelectedPath;
+                            Store.SaveSpaces();
+                        }
+                    }
+                }));
+            });
             popup.IsOpen = true;
         }
 
@@ -3955,23 +4241,90 @@ namespace SearchBrowser
             var win = new Window
             {
                 Title = title,
-                Width = 340,
-                Height = 155,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Width = 356,
+                SizeToContent = SizeToContent.Height,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
                 ResizeMode = ResizeMode.NoResize,
-                Background = Palette.Ground,
-                Foreground = Palette.Ink
+                Background = Brushes.Transparent,
+                ShowInTaskbar = false,
+                Topmost = true
             };
-            var sp = new StackPanel { Margin = new Thickness(16) };
-            sp.Children.Add(new TextBlock { Text = label, FontSize = 12.5, Margin = new Thickness(0, 0, 0, 8), Foreground = Palette.Ink });
-            var tb = new TextBox { Text = defaultVal ?? "", Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 0, 0, 12) };
-            sp.Children.Add(tb);
-            var ok = new Button { Content = "OK", Width = 76, Height = 26, HorizontalAlignment = HorizontalAlignment.Right, IsDefault = true };
-            ok.Click += (s, e) => { win.DialogResult = true; win.Close(); };
-            sp.Children.Add(ok);
-            win.Content = sp;
-            tb.Focus();
-            tb.SelectAll();
+
+            var card = new Border
+            {
+                Background = Palette.MenuBg,
+                BorderBrush = Palette.MenuBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(18, 16, 18, 16),
+                Margin = new Thickness(10),
+                Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 22, ShadowDepth = 6, Opacity = 0.38, Color = Colors.Black }
+            };
+
+            var sp = new StackPanel();
+            sp.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = Palette.Ink, Margin = new Thickness(0, 0, 0, 4) });
+            sp.Children.Add(new TextBlock { Text = label, FontSize = 12, Foreground = Palette.Muted, Margin = new Thickness(0, 0, 0, 12) });
+
+            var tbBorder = new Border
+            {
+                Background = Palette.Ground,
+                BorderBrush = Palette.Hairline,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(8, 5, 8, 5),
+                Margin = new Thickness(0, 0, 0, 14)
+            };
+            var tb = new TextBox
+            {
+                Text = defaultVal ?? "",
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Foreground = Palette.Ink,
+                CaretBrush = Palette.Ink,
+                FontSize = 13,
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+            tbBorder.Child = tb;
+            sp.Children.Add(tbBorder);
+
+            var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            var cancelBtn = new Border
+            {
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14, 6, 14, 6),
+                Margin = new Thickness(0, 0, 8, 0),
+                Background = Palette.FrameWash,
+                Cursor = Cursors.Hand,
+                Child = new TextBlock { Text = "Cancel", FontSize = 12.5, Foreground = Palette.Ink }
+            };
+            cancelBtn.MouseEnter += (s, e) => cancelBtn.Background = Palette.MenuHot;
+            cancelBtn.MouseLeave += (s, e) => cancelBtn.Background = Palette.FrameWash;
+            cancelBtn.MouseLeftButtonUp += (s, e) => { win.DialogResult = false; win.Close(); };
+
+            var okBtn = new Border
+            {
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(16, 6, 16, 6),
+                Background = Palette.Ink,
+                Cursor = Cursors.Hand,
+                Child = new TextBlock { Text = "OK", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = Palette.Ground }
+            };
+            okBtn.MouseLeftButtonUp += (s, e) => { win.DialogResult = true; win.Close(); };
+
+            btnRow.Children.Add(cancelBtn);
+            btnRow.Children.Add(okBtn);
+            sp.Children.Add(btnRow);
+
+            card.Child = sp;
+            win.Content = card;
+            win.PreviewKeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Enter) { e.Handled = true; win.DialogResult = true; win.Close(); }
+                else if (e.Key == Key.Escape) { e.Handled = true; win.DialogResult = false; win.Close(); }
+            };
+            win.Loaded += (s, e) => { tb.Focus(); tb.SelectAll(); };
             return win.ShowDialog() == true ? tb.Text : null;
         }
 

@@ -70,6 +70,10 @@ namespace SearchBrowser
         [DataMember] public string Id { get; set; }
         [DataMember] public string Name { get; set; }
         [DataMember] public string AccentHex { get; set; }
+        [DataMember] public string IconName { get; set; }
+        [DataMember] public string ColorKey { get; set; }
+        [DataMember] public string ColorStrength { get; set; }
+        [DataMember] public string DownloadsFolder { get; set; }
     }
 
     [DataContract]
