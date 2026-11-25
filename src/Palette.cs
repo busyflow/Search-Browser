@@ -46,7 +46,7 @@ namespace SearchBrowser
                 Ink = BrushFromWhite(0.93);          // #EDEDED
                 Muted = BrushFromWhite(0.58);        // #949494
                 Faint = BrushFromWhite(0.32);        // #525252
-                Hairline = BrushFromWhite(0.14);     // #242424
+                Hairline = BrushFromWhite(0.08);     // #141414 (ultra-subtle Oriel hairline)
                 Wash = BrushFromWhite(0.175);        // #2D2D2D
                 Hover = BrushFromWhite(0.15);        // #262626
                 Safe = BrushFromRgb(0.29, 0.87, 0.50);
