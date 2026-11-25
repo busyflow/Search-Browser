@@ -1494,12 +1494,61 @@ namespace SearchBrowser
                 else
                     Store.Prefs.TabLayout = "IconsOnly";
                 Store.Prefs.SidebarCollapsed = false;
+                Store.SavePrefs();
+                ApplyLayoutPreferences();
+                return;
             }
-            else
-            {
-                Store.Prefs.SidebarCollapsed = !Store.Prefs.SidebarCollapsed;
-            }
+
+            bool nextCollapsed = !Store.Prefs.SidebarCollapsed;
+            Store.Prefs.SidebarCollapsed = nextCollapsed;
             Store.SavePrefs();
+
+            bool isTop = string.Equals(Store.Prefs.TabLayout, "Top", StringComparison.OrdinalIgnoreCase);
+            if (!isTop && Store.Prefs.SlideSidebar && !Store.Prefs.ReduceAnimations && _sidebarBorder != null)
+            {
+                bool isIconsOnly = string.Equals(Store.Prefs.TabLayout, "IconsOnly", StringComparison.OrdinalIgnoreCase);
+                double targetW = isIconsOnly ? 52 : (Store.Prefs.SidebarWidth >= 176 && Store.Prefs.SidebarWidth <= 440 ? Store.Prefs.SidebarWidth : 232);
+
+                _sidebarBorder.BeginAnimation(FrameworkElement.WidthProperty, null);
+                if (nextCollapsed)
+                {
+                    double startW = _sidebarBorder.ActualWidth > 0 ? _sidebarBorder.ActualWidth : targetW;
+                    var anim = new DoubleAnimation(startW, 0, TimeSpan.FromMilliseconds(200))
+                    {
+                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                    };
+                    anim.Completed += (s, e) =>
+                    {
+                        if (Store.Prefs.SidebarCollapsed)
+                        {
+                            _sidebarBorder.BeginAnimation(FrameworkElement.WidthProperty, null);
+                            ApplyLayoutPreferences(false);
+                        }
+                    };
+                    _sidebarBorder.BeginAnimation(FrameworkElement.WidthProperty, anim);
+                }
+                else
+                {
+                    _sidebarBorder.Width = 0;
+                    _sidebarBorder.Visibility = Visibility.Visible;
+                    _sidebarHoverHotzone.Visibility = Visibility.Collapsed;
+                    var anim = new DoubleAnimation(0, targetW, TimeSpan.FromMilliseconds(200))
+                    {
+                        EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                    };
+                    anim.Completed += (s, e) =>
+                    {
+                        if (!Store.Prefs.SidebarCollapsed)
+                        {
+                            _sidebarBorder.BeginAnimation(FrameworkElement.WidthProperty, null);
+                            ApplyLayoutPreferences(false);
+                        }
+                    };
+                    _sidebarBorder.BeginAnimation(FrameworkElement.WidthProperty, anim);
+                }
+                return;
+            }
+
             ApplyLayoutPreferences();
         }
 
@@ -3032,16 +3081,18 @@ namespace SearchBrowser
         private void UpdateFooterButtons()
         {
             bool buttonsTop = Store.Prefs.ButtonsAtTop;
+            bool isTop = string.Equals(Store.Prefs.TabLayout, "Top", StringComparison.OrdinalIgnoreCase);
+            bool showAtTop = buttonsTop || isTop;
             bool hasActiveDl = Downloads.Any(d => d.State == "Downloading...");
             bool showDl = Store.Prefs.AlwaysShowDownloadsButton || hasActiveDl;
-            if (_topExtDoor != null) _topExtDoor.Visibility = (buttonsTop && Store.Prefs.ShowExtBtn) ? Visibility.Visible : Visibility.Collapsed;
-            if (_topDlDoor != null) _topDlDoor.Visibility = (buttonsTop && showDl) ? Visibility.Visible : Visibility.Collapsed;
-            if (_bmDoor != null) _bmDoor.Visibility = (buttonsTop || Store.Prefs.ShowBookmarksBtn) ? Visibility.Visible : Visibility.Collapsed;
+            if (_topExtDoor != null) _topExtDoor.Visibility = (showAtTop && Store.Prefs.ShowExtBtn) ? Visibility.Visible : Visibility.Collapsed;
+            if (_topDlDoor != null) _topDlDoor.Visibility = (showAtTop && showDl) ? Visibility.Visible : Visibility.Collapsed;
+            if (_bmDoor != null) _bmDoor.Visibility = (showAtTop && Store.Prefs.ShowBookmarksBtn) ? Visibility.Visible : Visibility.Collapsed;
 
             if (_spaceFooterBtn != null) _spaceFooterBtn.Visibility = (Store.Prefs.SpacesEnabled || Store.Prefs.ShowProfileBtn) ? Visibility.Visible : Visibility.Collapsed;
-            if (_bmFooterBtn != null) _bmFooterBtn.Visibility = (!buttonsTop && Store.Prefs.ShowBookmarksBtn) ? Visibility.Visible : Visibility.Collapsed;
-            if (_extFooterBtn != null) _extFooterBtn.Visibility = (!buttonsTop && Store.Prefs.ShowExtBtn) ? Visibility.Visible : Visibility.Collapsed;
-            if (_dlFooterBtn != null) _dlFooterBtn.Visibility = (!buttonsTop && showDl) ? Visibility.Visible : Visibility.Collapsed;
+            if (_bmFooterBtn != null) _bmFooterBtn.Visibility = (!showAtTop && Store.Prefs.ShowBookmarksBtn) ? Visibility.Visible : Visibility.Collapsed;
+            if (_extFooterBtn != null) _extFooterBtn.Visibility = (!showAtTop && Store.Prefs.ShowExtBtn) ? Visibility.Visible : Visibility.Collapsed;
+            if (_dlFooterBtn != null) _dlFooterBtn.Visibility = (!showAtTop && showDl) ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void UpdateMediaPlayerCard()
