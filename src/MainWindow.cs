@@ -3382,9 +3382,8 @@ namespace SearchBrowser
             if (wasActive) _activeTab = null;
             if (tab.IsPrivate && !_allTabs.Any(t => t.IsPrivate))
                 BrowserTab.CleanupSharedPrivateSession();
-            try { if (tab.WebView != null) { tab.WebView.Visibility = Visibility.Collapsed; tab.WebView.Dispose(); } } catch { }
-            tab.WebView = null;
-            tab.IsWebViewInitialized = false;
+            tab.KeepAwake = false;
+            tab.PutToSleep();
             TrimProcessWorkingSet();
 
             var spaceTabs = GetTabsForActiveSpace();
