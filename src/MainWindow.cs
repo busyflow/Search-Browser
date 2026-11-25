@@ -201,6 +201,7 @@ namespace SearchBrowser
         public MainWindow()
         {
             Store.Initialize();
+            BrowserTab.CleanupStalePrivateSessions();
             Palette.ResolveTheme();
 
             Title = "Search";
@@ -2140,6 +2141,7 @@ namespace SearchBrowser
             {
                 if (t.IsPrivate) t.CleanupPrivateStorage();
             }
+            BrowserTab.CleanupSharedPrivateSession();
             UninstallGlobalShortcutHook();
             System.Windows.Interop.ComponentDispatcher.ThreadPreprocessMessage -= OnThreadPreprocessMessage;
             BenchServer.Stop();
@@ -3024,7 +3026,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0012";
+            const string currentVersion = "0.0013";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -3327,7 +3329,8 @@ namespace SearchBrowser
 
             _allTabs.Remove(tab);
             _mruTabs.Remove(tab);
-            if (tab.IsPrivate) tab.CleanupPrivateStorage();
+            if (tab.IsPrivate && !_allTabs.Any(t => t.IsPrivate))
+                BrowserTab.CleanupSharedPrivateSession();
             try { if (tab.WebView != null) tab.WebView.Dispose(); } catch { }
 
             var spaceTabs = GetTabsForActiveSpace();

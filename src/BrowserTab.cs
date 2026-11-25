@@ -104,6 +104,51 @@ namespace SearchBrowser
             }
         }
 
+        private static CoreWebView2Environment _sharedPrivateEnv;
+        private static string _sharedPrivateDataDir;
+        private static int _sharedPrivateSeed;
+
+        public static void CleanupSharedPrivateSession()
+        {
+            string dir = _sharedPrivateDataDir;
+            _sharedPrivateEnv = null;
+            _sharedPrivateDataDir = null;
+            _sharedPrivateSeed = 0;
+            if (!string.IsNullOrEmpty(dir))
+            {
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    for (int i = 0; i < 6; i++)
+                    {
+                        try
+                        {
+                            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+                            return;
+                        }
+                        catch
+                        {
+                            System.Threading.Thread.Sleep(250);
+                        }
+                    }
+                });
+            }
+        }
+
+        public static void CleanupStalePrivateSessions()
+        {
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    foreach (var d in Directory.GetDirectories(Path.GetTempPath(), "SearchBrowser_Priv*"))
+                    {
+                        try { Directory.Delete(d, true); } catch { }
+                    }
+                }
+                catch { }
+            });
+        }
+
         private async Task EnsureAwakeCoreAsync(CoreWebView2Environment sharedEnv, Border host)
         {
             Touch();
@@ -125,8 +170,18 @@ namespace SearchBrowser
             CoreWebView2Environment envToUse = sharedEnv;
             if (IsPrivate)
             {
-                _privateDataDir = Path.Combine(Path.GetTempPath(), "SearchBrowser_Priv_" + Id);
-                envToUse = await CoreWebView2Environment.CreateAsync(null, _privateDataDir);
+                if (_sharedPrivateEnv == null || string.IsNullOrEmpty(_sharedPrivateDataDir))
+                {
+                    _sharedPrivateDataDir = Path.Combine(Path.GetTempPath(), "SearchBrowser_PrivSession_" + Guid.NewGuid().ToString("N"));
+                    _sharedPrivateSeed = new Random(Guid.NewGuid().GetHashCode()).Next(1000, 999999);
+                    string pArgs = "--enable-smooth-scrolling --disable-background-networking --disable-features=InterestFeedContentSuggestions,OptimizationHints,MediaRouter,PrivacySandboxAdsAPIsOverride,BrowsingTopics,AttributionReportingCrossAppWeb";
+                    if (Store.Prefs != null && Store.Prefs.BlockWebRtcLeaks)
+                        pArgs += " --force-webrtc-ip-handling-policy=disable_non_proxied_udp";
+                    var pOpts = new CoreWebView2EnvironmentOptions { AdditionalBrowserArguments = pArgs };
+                    _sharedPrivateEnv = await CoreWebView2Environment.CreateAsync(null, _sharedPrivateDataDir, pOpts);
+                }
+                _privateDataDir = _sharedPrivateDataDir;
+                envToUse = _sharedPrivateEnv;
             }
 
             await WebView.EnsureCoreWebView2Async(envToUse);
@@ -172,7 +227,7 @@ namespace SearchBrowser
             await core.AddScriptToExecuteOnDocumentCreatedAsync(PageFeatures.CurtainPickerBootstrapScript);
             if ((Store.Prefs != null && Store.Prefs.AntiFingerprinting) || IsPrivate)
             {
-                int seed = IsPrivate ? new Random(Guid.NewGuid().GetHashCode()).Next(1000, 999999) : Shield.SessionFingerprintSeed;
+                int seed = IsPrivate ? (_sharedPrivateSeed != 0 ? _sharedPrivateSeed : Shield.SessionFingerprintSeed) : Shield.SessionFingerprintSeed;
                 await core.AddScriptToExecuteOnDocumentCreatedAsync(Shield.GetAntiFingerprintingScript(seed));
             }
             if ((Store.Prefs != null && Store.Prefs.SendGpc) || IsPrivate)
