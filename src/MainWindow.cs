@@ -508,6 +508,8 @@ namespace SearchBrowser
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 Background = Brushes.Transparent
             };
+            tabsScroll.Focusable = false;
+            tabsScroll.FocusVisualStyle = null;
             tabsScroll.MouseLeftButtonDown += (s, e) =>
             {
                 if (e.OriginalSource == tabsScroll || e.OriginalSource == _tabsStack || e.OriginalSource == _tabsContainerGrid)
@@ -690,12 +692,12 @@ namespace SearchBrowser
             pageInnerDock.Children.Add(_passwordOfferBanner);
 
             // Stage Grid supporting single page or Split View side-by-side
-            _stageGrid = new Grid { Background = Palette.Ground };
+            _stageGrid = new Grid { Background = Brushes.Transparent };
             _stageGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             _stageGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _stageGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0, GridUnitType.Pixel) });
 
-            _leftPaneHost = new Border { Background = Palette.Ground };
+            _leftPaneHost = new Border { Background = Brushes.Transparent };
             _leftPaneHost.PreviewMouseDown += (s, e) =>
             {
                 if (_isSplitView && _splitLeftTab != null && _activeTab != _splitLeftTab)
@@ -720,7 +722,7 @@ namespace SearchBrowser
             Grid.SetColumn(_splitDivider, 1);
             _stageGrid.Children.Add(_splitDivider);
 
-            _rightPaneHost = new Border { Background = Palette.Ground, Visibility = Visibility.Collapsed };
+            _rightPaneHost = new Border { Background = Brushes.Transparent, Visibility = Visibility.Collapsed };
             _rightPaneHost.PreviewMouseDown += (s, e) =>
             {
                 if (_isSplitView && _splitRightTab != null && _activeTab != _splitRightTab)
@@ -1461,7 +1463,7 @@ namespace SearchBrowser
             var wv = host.Child as Microsoft.Web.WebView2.Wpf.WebView2;
             if (wv == null || wv.Handle == IntPtr.Zero) return;
             bool isTop = string.Equals(Store.Prefs.TabLayout, "Top", StringComparison.OrdinalIgnoreCase);
-            bool showCard = Store.Prefs.PageAsCard && !isTop && (!_isFullScreen || Store.Prefs.KeepCardInFullScreen) && WindowState != WindowState.Maximized;
+            bool showCard = Store.Prefs.PageAsCard && !isTop && (!_isFullScreen || Store.Prefs.KeepCardInFullScreen);
             if (showCard)
             {
                 var source = PresentationSource.FromVisual(wv);
@@ -1469,7 +1471,7 @@ namespace SearchBrowser
                 double dpiY = source != null && source.CompositionTarget != null ? source.CompositionTarget.TransformToDevice.M22 : 1.0;
                 int w = (int)(wv.ActualWidth * dpiX);
                 int h = (int)(wv.ActualHeight * dpiY);
-                int r = (int)(20 * dpiX);
+                int r = (int)(18 * dpiX);
                 if (w > 0 && h > 0)
                 {
                     IntPtr rgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, r, r);
@@ -1806,7 +1808,7 @@ namespace SearchBrowser
             {
                 Background = bgBrush;
                 _topTabBarBorder.Background = Brushes.Transparent;
-                _sidebarBorder.Background = new SolidColorBrush(dark ? Color.FromArgb(46, 0, 0, 0) : Color.FromArgb(26, 255, 255, 255));
+                _sidebarBorder.Background = Brushes.Transparent;
             }
         }
 
@@ -2970,6 +2972,11 @@ namespace SearchBrowser
                 _splitLeftTab = tab;
                 _leftPaneHost.Child = tab.WebView;
             }
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                ApplyRoundedCornersToHost(_leftPaneHost);
+                ApplyRoundedCornersToHost(_rightPaneHost);
+            }));
 
             _mruTabs.Remove(tab);
             _mruTabs.Insert(0, tab);
@@ -3458,11 +3465,11 @@ namespace SearchBrowser
             }
             _topTabBarBorder.Background = Palette.Frame;
             ApplyChromeThemeBrush();
-            _pageCardBorder.Background = Palette.Ground;
+            _pageCardBorder.Background = Brushes.Transparent;
             _pageCardBorder.BorderBrush = Palette.CardEdge;
-            if (_stageGrid != null) _stageGrid.Background = Palette.Ground;
-            if (_leftPaneHost != null) _leftPaneHost.Background = Palette.Ground;
-            if (_rightPaneHost != null) _rightPaneHost.Background = Palette.Ground;
+            if (_stageGrid != null) _stageGrid.Background = Brushes.Transparent;
+            if (_leftPaneHost != null) _leftPaneHost.Background = Brushes.Transparent;
+            if (_rightPaneHost != null) _rightPaneHost.Background = Brushes.Transparent;
             _omniboxCard.Background = Palette.CardSurface;
             _omniboxCard.BorderBrush = Palette.Hairline;
             _omniboxInput.Foreground = Palette.Ink;
