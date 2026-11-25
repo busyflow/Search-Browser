@@ -45,7 +45,7 @@ namespace SearchSetup
             });
             root.Children.Add(new System.Windows.Controls.TextBlock
             {
-                Text = "Native Windows x64 + WebView2 browser (v0.0001)\nDestination: %LOCALAPPDATA%\\Programs\\Search",
+                Text = "Native Windows x64 + WebView2 browser (v0.0002)\nDestination: %LOCALAPPDATA%\\Programs\\Search",
                 FontSize = 12.5,
                 Foreground = System.Windows.Media.Brushes.DimGray,
                 Margin = new Thickness(0, 0, 0, 16)

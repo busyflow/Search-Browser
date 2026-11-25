@@ -1098,8 +1098,51 @@ namespace SearchBrowser
             _drawerPopup.IsOpen = open;
         }
 
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+        [System.Runtime.InteropServices.DllImport("gdi32.dll")]
+        private static extern IntPtr CreateRoundRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect, int nWidthEllipse, int nHeightEllipse);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, bool bRedraw);
+
+        private void ApplyRoundedCornersToHost(Border host)
+        {
+            if (host == null) return;
+            var wv = host.Child as Microsoft.Web.WebView2.Wpf.WebView2;
+            if (wv == null || wv.Handle == IntPtr.Zero) return;
+            if (Store.Prefs.PageAsCard && WindowState != WindowState.Maximized)
+            {
+                var source = PresentationSource.FromVisual(wv);
+                double dpiX = source != null && source.CompositionTarget != null ? source.CompositionTarget.TransformToDevice.M11 : 1.0;
+                double dpiY = source != null && source.CompositionTarget != null ? source.CompositionTarget.TransformToDevice.M22 : 1.0;
+                int w = (int)(wv.ActualWidth * dpiX);
+                int h = (int)(wv.ActualHeight * dpiY);
+                int r = (int)(20 * dpiX);
+                if (w > 0 && h > 0)
+                {
+                    IntPtr rgn = CreateRoundRectRgn(0, 0, w + 1, h + 1, r, r);
+                    SetWindowRgn(wv.Handle, rgn, true);
+                }
+            }
+            else
+            {
+                SetWindowRgn(wv.Handle, IntPtr.Zero, true);
+            }
+        }
+
         private async void OnWindowLoaded(object sender, RoutedEventArgs e)
         {
+            try
+            {
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                int pref = 2; // DWMWCP_ROUND
+                DwmSetWindowAttribute(hwnd, 33, ref pref, sizeof(int));
+            }
+            catch { }
+            _leftPaneHost.SizeChanged += (s2, e2) => ApplyRoundedCornersToHost(_leftPaneHost);
+            _rightPaneHost.SizeChanged += (s2, e2) => ApplyRoundedCornersToHost(_rightPaneHost);
             try
             {
                 var options = new CoreWebView2EnvironmentOptions
@@ -1755,7 +1798,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0001";
+            const string currentVersion = "0.0002";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -2384,7 +2427,7 @@ namespace SearchBrowser
                 lbl.Foreground = Palette.Muted;
                 lbl.Opacity = 0.65;
             };
-            row.MouseLeftButtonDown += (s, e) =>
+            row.MouseLeftButtonUp += (s, e) =>
             {
                 e.Handled = true;
                 ShowOmnibox(false, true);
@@ -2919,7 +2962,9 @@ namespace SearchBrowser
             RefreshOmniboxOffers();
             Dispatcher.InvokeAsync(() =>
             {
+                Activate();
                 _omniboxInput.Focus();
+                Keyboard.Focus(_omniboxInput);
                 _omniboxInput.SelectAll();
             }, DispatcherPriority.Input);
         }
