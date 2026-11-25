@@ -4475,7 +4475,7 @@ namespace SearchBrowser
                     SaveCurrentSession();
                 }
             });
-            AddPopupMenuItem(popup, stack, "Duplicate", "Ctrl+D", () =>
+            AddPopupMenuItem(popup, stack, "Duplicate", "", () =>
             {
                 CreateAndSelectTab(tab.Url, false, tab.IsPrivate, tab.GroupId, tab);
             });
@@ -4489,7 +4489,7 @@ namespace SearchBrowser
                     "\nAd & Tracker Shield: " + (paused ? "Paused on this site" : (Store.Prefs.ShieldEnabled ? "Active" : "Off")) +
                     "\nDark Mode (Dusk): " + (PageFeatures.IsDuskDisabledForSite(host) ? "Disabled on this site" : "Automatic"),
                     "Site Information", MessageBoxButton.OK, MessageBoxImage.Information);
-            }, isWebUrl);
+            }, isWebUrl && !tab.IsSleeping);
             AddPopupMenuItem(popup, stack, "Copy Address", "", () =>
             {
                 Clipboard.SetText(tab.Url ?? "");
@@ -4499,7 +4499,7 @@ namespace SearchBrowser
                 Clipboard.SetText("[" + tab.DisplayTitle + "](" + (tab.Url ?? "") + ")");
             });
             string cleanUrl = CleanLink.Clean(tab.Url, true);
-            AddPopupMenuItem(popup, stack, "Copy Clean Link", "Ctrl+Shift+C", () =>
+            AddPopupMenuItem(popup, stack, "Copy Clean Link", "", () =>
             {
                 Clipboard.SetText(cleanUrl);
             }, isWebUrl && !string.Equals(cleanUrl, tab.Url, StringComparison.Ordinal));
@@ -4508,7 +4508,7 @@ namespace SearchBrowser
                 if (tab != _activeTab) await OpenTabInSplitViewAsync(tab, false);
                 else ToggleSplitView();
             });
-            AddPopupMenuItem(popup, stack, tab.IsMuted ? "Unmute Tab" : "Mute Tab", "Ctrl+Shift+M", () =>
+            AddPopupMenuItem(popup, stack, tab.IsMuted ? "Unmute Tab" : "Mute Tab", "", () =>
             {
                 tab.IsMuted = !tab.IsMuted;
                 if (tab.WebView != null && tab.IsWebViewInitialized && tab.WebView.CoreWebView2 != null)
@@ -4532,7 +4532,7 @@ namespace SearchBrowser
                     await tab.WebView.CoreWebView2.ExecuteScriptAsync(
                         "(function(){var s=document.createElement('style');s.textContent='*{user-select:text!important;-webkit-user-select:text!important;}';(document.head||document.documentElement).appendChild(s);['copy','cut','selectstart','contextmenu'].forEach(function(ev){window.addEventListener(ev,function(e){e.stopPropagation();},true);});})();");
                 }
-            }, isWebUrl);
+            }, isWebUrl && !tab.IsSleeping);
             AddPopupMenuItem(popup, stack, tab.KeepAwake ? "Allow Tab to Sleep" : "Keep This Site Awake", "", () =>
             {
                 tab.KeepAwake = !tab.KeepAwake;
@@ -4547,20 +4547,14 @@ namespace SearchBrowser
                     return;
                 }
                 tab.KeepAwake = false;
-                if (tab == _activeTab)
-                {
-                    var other = GetTabsForActiveSpace().FirstOrDefault(t => t != tab);
-                    if (other != null) await SelectTabAsync(other);
-                    else _leftPaneHost.Child = null;
-                }
                 tab.PutToSleep();
                 RefreshTabRows();
                 SaveCurrentSession();
-            });
+            }, tab != _activeTab);
 
             AddPopupSeparator(stack);
 
-            AddPopupMenuItem(popup, stack, "Close Tab", "Ctrl+W", () => CloseTab(tab, true));
+            AddPopupMenuItem(popup, stack, "Close Tab", "", () => CloseTab(tab, true));
             var spaceUnpinned = GetTabsForActiveSpace().Where(t => !t.Pinned).ToList();
             AddPopupMenuItem(popup, stack, "Close Other Tabs", "", () =>
             {
@@ -4574,7 +4568,7 @@ namespace SearchBrowser
                     foreach (var bt in spaceUnpinned.Skip(curUnpinnedIdx + 1).ToList()) CloseTab(bt, true);
                 }
             }, curUnpinnedIdx >= 0 && curUnpinnedIdx < spaceUnpinned.Count - 1);
-            AddPopupMenuItem(popup, stack, "Reopen Closed Tab", "Ctrl+Shift+T", () => ReopenClosedTab(), _closedTabs.Count > 0);
+            AddPopupMenuItem(popup, stack, "Reopen Closed Tab", "", () => ReopenClosedTab(), _closedTabs.Count > 0);
 
             popup.IsOpen = true;
         }
