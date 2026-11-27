@@ -342,6 +342,12 @@ namespace SearchBrowser
                 TopBarClearance = "Notch";
                 PrefsMigrationVersion = 5;
             }
+            if (PrefsMigrationVersion < 6)
+            {
+                ShowAddressOnActiveTab = true;
+                ClickActiveTabEditsAddress = true;
+                PrefsMigrationVersion = 6;
+            }
             if (string.IsNullOrEmpty(WindowButtonsStyle)) WindowButtonsStyle = "TrafficLights";
             if (string.IsNullOrEmpty(TopBarClearance)) TopBarClearance = "Notch";
             if (string.IsNullOrEmpty(NewTabPosition)) NewTabPosition = "After current";

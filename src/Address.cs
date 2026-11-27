@@ -236,5 +236,120 @@ namespace SearchBrowser
             if (path == "/") path = "";
             return host + path;
         }
+
+        public enum AtRestKind { Secure, NotSecure, File, Other }
+
+        public class AtRestInfo
+        {
+            public AtRestKind Kind { get; set; }
+            public string Lead { get; set; }
+            public string Name { get; set; }
+            public string Tail { get; set; }
+            public bool IsWarn { get { return Kind == AtRestKind.NotSecure; } }
+            public string FullText { get { return (Kind == AtRestKind.NotSecure ? "Not secure — " : "") + (Lead ?? "") + (Name ?? "") + (Tail ?? ""); } }
+        }
+
+        private static readonly HashSet<string> TwoPartSuffixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "co.uk", "org.uk", "ac.uk", "gov.uk", "me.uk", "net.uk",
+            "com.au", "net.au", "org.au", "edu.au", "gov.au",
+            "co.jp", "ne.jp", "or.jp", "ac.jp", "go.jp",
+            "co.nz", "net.nz", "org.nz", "govt.nz",
+            "co.za", "org.za", "gov.za", "ac.za",
+            "com.br", "net.br", "org.br", "gov.br",
+            "com.mx", "com.cn", "com.hk", "com.sg", "com.tw", "com.tr", "com.ar", "com.co",
+            "co.in", "co.kr", "co.il", "co.id", "co.th", "com.ua", "com.pl", "com.my", "com.ph"
+        };
+
+        // Exact 1:1 port of driceroland/Search AtRest.swift: splits subdomain (dim) + registrable domain (ink) + non-standard port (dim)
+        public static AtRestInfo GetAtRest(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return null;
+            Uri u;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out u)) return null;
+            string scheme = (u.Scheme ?? "").ToLowerInvariant();
+            if (scheme == "about" || scheme == "search" || string.IsNullOrEmpty(scheme)) return null;
+            if (scheme == "http" || scheme == "https")
+            {
+                string raw = (u.Host ?? "").Trim().TrimEnd('.').ToLowerInvariant();
+                if (string.IsNullOrEmpty(raw)) return null;
+                bool isIp = raw.Contains(":") || IsIpv4(raw);
+                string bare = (!isIp && raw.StartsWith("www.", StringComparison.OrdinalIgnoreCase) && raw.Split('.').Length > 2)
+                    ? raw.Substring(4) : raw;
+                string lead = "";
+                string name = bare;
+                if (isIp)
+                {
+                    name = raw.Contains(":") && !raw.StartsWith("[") ? "[" + raw + "]" : raw;
+                }
+                else
+                {
+                    var labels = bare.Split('.');
+                    if (labels.Length >= 3)
+                    {
+                        string lastTwo = labels[labels.Length - 2] + "." + labels[labels.Length - 1];
+                        int regCount = TwoPartSuffixes.Contains(lastTwo) ? 3 : 2;
+                        if (labels.Length > regCount)
+                        {
+                            name = string.Join(".", labels.Skip(labels.Length - regCount));
+                            lead = string.Join(".", labels.Take(labels.Length - regCount)) + ".";
+                        }
+                    }
+                }
+                string tail = "";
+                if (!u.IsDefaultPort && u.Port > 0) tail = ":" + u.Port;
+                bool local = IsLocalHost(raw);
+                return new AtRestInfo
+                {
+                    Kind = (scheme == "https" || local) ? AtRestKind.Secure : AtRestKind.NotSecure,
+                    Lead = lead,
+                    Name = name,
+                    Tail = tail
+                };
+            }
+            if (scheme == "file")
+            {
+                string fname = "";
+                try { fname = Path.GetFileName(u.LocalPath); } catch { }
+                return new AtRestInfo { Kind = AtRestKind.File, Lead = "", Name = string.IsNullOrEmpty(fname) ? "File" : fname, Tail = "" };
+            }
+            if (scheme == "chrome-extension")
+            {
+                return new AtRestInfo { Kind = AtRestKind.Other, Lead = "", Name = "Extension page", Tail = "" };
+            }
+            return new AtRestInfo { Kind = AtRestKind.Other, Lead = "", Name = "Not a website", Tail = "" };
+        }
+
+        private static bool IsIpv4(string host)
+        {
+            var parts = host.Split('.');
+            if (parts.Length != 4) return false;
+            for (int i = 0; i < 4; i++) { byte b; if (!byte.TryParse(parts[i], out b)) return false; }
+            return true;
+        }
+
+        // Exact 1:1 port of driceroland/Search Address.editable: omits https:// and bare trailing / for clean inline editing
+        public static string EditableAddress(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url) || url == "about:blank") return "";
+            Uri u;
+            if (!Uri.TryCreate(url, UriKind.Absolute, out u)) return url;
+            string full = u.AbsoluteUri;
+            if (string.Equals(u.Scheme, "https", StringComparison.OrdinalIgnoreCase))
+            {
+                string shortUrl = full.Substring("https://".Length);
+                if (u.AbsolutePath == "/" && string.IsNullOrEmpty(u.Query) && string.IsNullOrEmpty(u.Fragment) && shortUrl.EndsWith("/"))
+                    shortUrl = shortUrl.Substring(0, shortUrl.Length - 1);
+                return shortUrl;
+            }
+            if (string.Equals(u.Scheme, "http", StringComparison.OrdinalIgnoreCase) && IsLocalHost(u.Host))
+            {
+                string shortUrl = full.Substring("http://".Length);
+                if (u.AbsolutePath == "/" && string.IsNullOrEmpty(u.Query) && string.IsNullOrEmpty(u.Fragment) && shortUrl.EndsWith("/"))
+                    shortUrl = shortUrl.Substring(0, shortUrl.Length - 1);
+                return shortUrl;
+            }
+            return full;
+        }
     }
 }

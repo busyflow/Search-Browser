@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -135,6 +135,9 @@ namespace SearchBrowser
         private StackPanel _bookmarksBarStack;
         private Border _alwaysAddressBar;
         private TextBox _alwaysAddressInput;
+        private Border _alwaysAddressSiteBtn;
+        private string _editingTabId;
+        private System.Windows.Controls.Primitives.Popup _siteCardPopup;
         private TextBlock _spaceTitleText;
         private StackPanel _spaceDotsPanel;
         private Border _spaceFooterBtn;
@@ -423,6 +426,87 @@ namespace SearchBrowser
             _spaceTitleText = new TextBlock();
             _spaceDotsPanel = new StackPanel();
 
+            // Official driceroland/Search AddressLine (AddressLine.swift): sits at top of sidebar column with Site Settings button
+            _alwaysAddressBar = new Border
+            {
+                Height = Store.Prefs.RoomierTabs ? 36 : 28,
+                CornerRadius = new CornerRadius(9),
+                Background = Palette.FrameHover,
+                Margin = new Thickness(0, 0, 0, 6),
+                Padding = new Thickness(10, 0, 4, 0),
+                Visibility = Visibility.Collapsed
+            };
+            var addrLineGrid = new Grid();
+            addrLineGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            addrLineGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _alwaysAddressInput = new TextBox
+            {
+                FontSize = 12,
+                Background = Brushes.Transparent,
+                Foreground = Palette.FrameMuted,
+                CaretBrush = Palette.Ink,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0),
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+            _alwaysAddressInput.GotKeyboardFocus += (s, e) =>
+            {
+                _alwaysAddressInput.Foreground = Palette.Ink;
+                if (_activeTab != null) _alwaysAddressInput.Text = Address.EditableAddress(_activeTab.Url);
+                Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => _alwaysAddressInput.SelectAll()));
+            };
+            _alwaysAddressInput.LostKeyboardFocus += (s, e) =>
+            {
+                _alwaysAddressInput.Foreground = Palette.FrameMuted;
+                UpdateAlwaysAddressLine();
+            };
+            _alwaysAddressInput.KeyDown += (s, e) =>
+            {
+                if (e.Key == Key.Enter && _activeTab != null && !string.IsNullOrWhiteSpace(_alwaysAddressInput.Text))
+                {
+                    _activeTab.Navigate(_alwaysAddressInput.Text.Trim());
+                    Keyboard.ClearFocus();
+                    e.Handled = true;
+                }
+                else if (e.Key == Key.Escape)
+                {
+                    UpdateAlwaysAddressLine();
+                    Keyboard.ClearFocus();
+                    e.Handled = true;
+                }
+            };
+            Grid.SetColumn(_alwaysAddressInput, 0);
+            addrLineGrid.Children.Add(_alwaysAddressInput);
+
+            _alwaysAddressSiteBtn = new Border
+            {
+                Width = 22,
+                Height = 22,
+                CornerRadius = new CornerRadius(6),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                ToolTip = "Site Settings",
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = VectorIcons.Draw(VectorIcons.SlidersPath, Palette.FrameMuted, 11, 1.45)
+            };
+            _alwaysAddressSiteBtn.MouseEnter += (s, e) => _alwaysAddressSiteBtn.Background = Palette.FrameWash;
+            _alwaysAddressSiteBtn.MouseLeave += (s, e) => _alwaysAddressSiteBtn.Background = Brushes.Transparent;
+            _alwaysAddressSiteBtn.MouseLeftButtonDown += (s, e) => { e.Handled = true; };
+            _alwaysAddressSiteBtn.MouseLeftButtonUp += (s, e) =>
+            {
+                e.Handled = true;
+                if (_activeTab != null)
+                {
+                    if (_siteCardPopup != null && _siteCardPopup.IsOpen) CloseSiteCard();
+                    else ShowSiteCard(_activeTab, _alwaysAddressBar, false);
+                }
+            };
+            Grid.SetColumn(_alwaysAddressSiteBtn, 1);
+            addrLineGrid.Children.Add(_alwaysAddressSiteBtn);
+            _alwaysAddressBar.Child = addrLineGrid;
+            DockPanel.SetDock(_alwaysAddressBar, Dock.Top);
+            sidebarDock.Children.Add(_alwaysAddressBar);
+
             // Pinned tabs grid (dynamic 3/4-column squares at top of column)
             _pinsPanel = new WrapPanel
             {
@@ -673,37 +757,6 @@ namespace SearchBrowser
             };
             DockPanel.SetDock(_loadingLine, Dock.Top);
             pageInnerDock.Children.Add(_loadingLine);
-
-            // Optional Always-Show Address Bar (Settings -> Appearance -> Always show the address bar)
-            _alwaysAddressBar = new Border
-            {
-                Background = Palette.Ground,
-                BorderBrush = Palette.Hairline,
-                BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(10, 5, 10, 5),
-                Visibility = Visibility.Collapsed
-            };
-            _alwaysAddressInput = new TextBox
-            {
-                FontSize = 12.5,
-                Background = Palette.Wash,
-                Foreground = Palette.Ink,
-                CaretBrush = Palette.Ink,
-                BorderThickness = new Thickness(0),
-                Padding = new Thickness(10, 4, 10, 4),
-                VerticalContentAlignment = VerticalAlignment.Center
-            };
-            _alwaysAddressInput.KeyDown += (s, e) =>
-            {
-                if (e.Key == Key.Enter && _activeTab != null && !string.IsNullOrWhiteSpace(_alwaysAddressInput.Text))
-                {
-                    _activeTab.Navigate(_alwaysAddressInput.Text.Trim());
-                    e.Handled = true;
-                }
-            };
-            _alwaysAddressBar.Child = _alwaysAddressInput;
-            DockPanel.SetDock(_alwaysAddressBar, Dock.Top);
-            pageInnerDock.Children.Add(_alwaysAddressBar);
 
             // Optional Bookmarks Bar (Settings -> Appearance -> Show the bookmarks bar)
             _bookmarksBar = new Border
@@ -2323,8 +2376,7 @@ namespace SearchBrowser
                         Title = t.DisplayTitle + " — Search";
                         UpdateHelmButtons();
                         UpdateBookmarkDoorIcon();
-                        if (_alwaysAddressInput != null && !_alwaysAddressInput.IsKeyboardFocused)
-                            _alwaysAddressInput.Text = Address.ShownAddress(t.Url);
+                        UpdateAlwaysAddressLine();
                     }
                     SaveCurrentSession();
                 });
@@ -3157,7 +3209,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0019";
+            const string currentVersion = "0.0020";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -3396,12 +3448,13 @@ namespace SearchBrowser
             _mruTabs.Remove(tab);
             _mruTabs.Insert(0, tab);
             _veilBanner.Visibility = tab.IsVeilPicking ? Visibility.Visible : Visibility.Collapsed;
+            _editingTabId = null;
+            CloseSiteCard();
             Title = tab.DisplayTitle + " — Search";
             UpdateHelmButtons();
             UpdateBookmarkDoorIcon();
             UpdateMediaPlayerCard();
-            if (_alwaysAddressInput != null && !_alwaysAddressInput.IsKeyboardFocused)
-                _alwaysAddressInput.Text = Address.ShownAddress(tab.Url);
+            UpdateAlwaysAddressLine();
             RefreshTabRows();
             SaveCurrentSession();
         }
@@ -3998,12 +4051,15 @@ namespace SearchBrowser
 
             if (_alwaysAddressBar != null)
             {
-                _alwaysAddressBar.Visibility = Store.Prefs.AlwaysShowAddressBar ? Visibility.Visible : Visibility.Collapsed;
-                _alwaysAddressBar.Background = Palette.Ground;
-                _alwaysAddressBar.BorderBrush = Palette.Hairline;
-                _alwaysAddressInput.Background = Palette.Wash;
-                _alwaysAddressInput.Foreground = Palette.Ink;
+                _alwaysAddressBar.Visibility = (Store.Prefs.AlwaysShowAddressBar && !isIconsOnly && !isTop) ? Visibility.Visible : Visibility.Collapsed;
+                _alwaysAddressBar.Height = Store.Prefs.RoomierTabs ? 36 : 28;
+                _alwaysAddressBar.Background = Palette.FrameHover;
+                _alwaysAddressInput.Background = Brushes.Transparent;
+                _alwaysAddressInput.Foreground = _alwaysAddressInput.IsKeyboardFocused ? Palette.Ink : Palette.FrameMuted;
                 _alwaysAddressInput.CaretBrush = Palette.Ink;
+                if (_alwaysAddressSiteBtn != null)
+                    _alwaysAddressSiteBtn.Child = VectorIcons.Draw(VectorIcons.SlidersPath, Palette.FrameMuted, 11, 1.45);
+                UpdateAlwaysAddressLine();
             }
             if (_bookmarksBar != null)
             {
@@ -4567,6 +4623,8 @@ namespace SearchBrowser
             popup.IsOpen = true;
         }
 
+
+
         private void ShowSpaceIconPicker(FrameworkElement anchor, SpaceItem sp)
         {
             StackPanel stack;
@@ -4585,6 +4643,8 @@ namespace SearchBrowser
             }
             popup.IsOpen = true;
         }
+
+
 
         private void ShowSpaceColourPicker(FrameworkElement anchor, SpaceItem sp)
         {
@@ -4677,6 +4737,8 @@ namespace SearchBrowser
             popup.IsOpen = true;
         }
 
+
+
         private void ShowSpaceDownloadsMenu(FrameworkElement anchor, SpaceItem sp)
         {
             StackPanel stack;
@@ -4711,6 +4773,8 @@ namespace SearchBrowser
             });
             popup.IsOpen = true;
         }
+
+
 
         private System.Windows.Controls.Primitives.Popup CreateThemedPopupMenu(FrameworkElement anchor, System.Windows.Controls.Primitives.PlacementMode placement, out StackPanel stack)
         {
@@ -5019,15 +5083,84 @@ namespace SearchBrowser
 
                 string sleepPrefix = (tab.IsSleeping && !isLive) ? "☾ " : "";
                 string normalLabel = sleepPrefix + (tab.KeepAwake ? "⚡ " : "") + (tab.IsAudible ? (tab.IsMuted ? "🔇 " : "🔊 ") : "") + tab.DisplayTitle;
-                string activeLabel = (isLive && Store.Prefs.ShowAddressOnActiveTab && !isBlank && (tab.Url == null || !tab.Url.StartsWith("search://")))
-                    ? Address.DisplayHost(tab.Url)
-                    : normalLabel;
-                if (string.IsNullOrEmpty(activeLabel)) activeLabel = normalLabel;
+                bool isInlineEdit = isLive && string.Equals(_editingTabId, tab.Id, StringComparison.OrdinalIgnoreCase);
+
+                if (isInlineEdit)
+                {
+                    string initialEditable = Address.EditableAddress(tab.Url);
+                    var inlineBox = new TextBox
+                    {
+                        Text = initialEditable,
+                        FontSize = titleFontSize,
+                        Background = Brushes.Transparent,
+                        Foreground = Palette.Ink,
+                        CaretBrush = Palette.Ink,
+                        BorderThickness = new Thickness(0),
+                        Padding = new Thickness(0),
+                        VerticalContentAlignment = VerticalAlignment.Center
+                    };
+                    var editTab = tab;
+                    bool editCommitted = false;
+                    inlineBox.Loaded += (s, e) =>
+                    {
+                        inlineBox.Focus();
+                        inlineBox.SelectAll();
+                        if (!string.IsNullOrEmpty(editTab.Url) && editTab.Url != "about:blank")
+                            ShowSiteCard(editTab, row, true);
+                    };
+                    inlineBox.TextChanged += (s, e) =>
+                    {
+                        if (!string.Equals(inlineBox.Text, initialEditable, StringComparison.Ordinal))
+                            CloseSiteCard();
+                    };
+                    inlineBox.KeyDown += (s, e) =>
+                    {
+                        if (e.Key == Key.Enter)
+                        {
+                            editCommitted = true;
+                            string dest = (inlineBox.Text ?? "").Trim();
+                            _editingTabId = null;
+                            CloseSiteCard();
+                            if (!string.IsNullOrEmpty(dest)) editTab.Navigate(dest);
+                            RefreshTabRows();
+                            e.Handled = true;
+                        }
+                        else if (e.Key == Key.Escape)
+                        {
+                            editCommitted = true;
+                            _editingTabId = null;
+                            CloseSiteCard();
+                            RefreshTabRows();
+                            e.Handled = true;
+                        }
+                    };
+                    inlineBox.LostKeyboardFocus += (s, e) =>
+                    {
+                        if (editCommitted) return;
+                        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                        {
+                            if (_siteCardPopup != null && _siteCardPopup.IsOpen && _siteCardPopup.IsMouseOver) return;
+                            if (string.Equals(_editingTabId, editTab.Id, StringComparison.OrdinalIgnoreCase))
+                            {
+                                _editingTabId = null;
+                                CloseSiteCard();
+                                RefreshTabRows();
+                            }
+                        }));
+                    };
+                    Grid.SetColumn(inlineBox, 1);
+                    grid.Children.Add(inlineBox);
+                    outerLayer.Children.Add(grid);
+                    row.Child = outerLayer;
+                    return row;
+                }
+
+                Address.AtRestInfo restInfo = (isLive && !isBlank) ? Address.GetAtRest(tab.Url) : null;
+                bool showAtRest = restInfo != null && (Store.Prefs.ShowAddressOnActiveTab || restInfo.IsWarn);
 
                 Brush restFg = isLive ? Palette.Ink : (Store.Prefs.HighContrastTabText ? Palette.Ink : Palette.FrameMuted);
                 var titleBlock = new TextBlock
                 {
-                    Text = activeLabel,
                     FontSize = titleFontSize,
                     FontWeight = FontWeights.Normal,
                     Foreground = restFg,
@@ -5035,6 +5168,30 @@ namespace SearchBrowser
                     VerticalAlignment = VerticalAlignment.Center,
                     TextTrimming = TextTrimming.CharacterEllipsis
                 };
+                Action applyRestText = () =>
+                {
+                    titleBlock.Inlines.Clear();
+                    if (showAtRest && restInfo != null)
+                    {
+                        if (restInfo.Kind == Address.AtRestKind.NotSecure)
+                            titleBlock.Inlines.Add(new System.Windows.Documents.Run("Not secure  ") { Foreground = Palette.Unsafe });
+                        if (!string.IsNullOrEmpty(restInfo.Lead))
+                            titleBlock.Inlines.Add(new System.Windows.Documents.Run(restInfo.Lead) { Foreground = Palette.FrameMuted });
+                        titleBlock.Inlines.Add(new System.Windows.Documents.Run(restInfo.Name ?? normalLabel)
+                        {
+                            Foreground = Palette.Ink,
+                            FontWeight = (restInfo.Kind == Address.AtRestKind.File || restInfo.Kind == Address.AtRestKind.Other)
+                                ? FontWeights.Normal : FontWeights.Medium
+                        });
+                        if (!string.IsNullOrEmpty(restInfo.Tail))
+                            titleBlock.Inlines.Add(new System.Windows.Documents.Run(restInfo.Tail) { Foreground = Palette.FrameMuted });
+                    }
+                    else
+                    {
+                        titleBlock.Inlines.Add(new System.Windows.Documents.Run(normalLabel) { Foreground = restFg });
+                    }
+                };
+                applyRestText();
                 Grid.SetColumn(titleBlock, 1);
                 grid.Children.Add(titleBlock);
                 outerLayer.Children.Add(grid);
@@ -5075,21 +5232,20 @@ namespace SearchBrowser
                 row.MouseEnter += (s, e) =>
                 {
                     closeBtn.Visibility = Visibility.Visible;
-                    titleBlock.Text = normalLabel;
+                    titleBlock.Inlines.Clear();
+                    titleBlock.Inlines.Add(new System.Windows.Documents.Run(normalLabel) { Foreground = isLive ? Palette.Ink : Palette.InkHoverText });
                     if (!isLive)
                     {
                         row.Background = Palette.FrameHover;
-                        titleBlock.Foreground = Palette.InkHoverText;
                     }
                 };
                 row.MouseLeave += (s, e) =>
                 {
                     closeBtn.Visibility = Visibility.Hidden;
-                    titleBlock.Text = activeLabel;
+                    applyRestText();
                     if (!isLive)
                     {
                         row.Background = isSecondarySplit ? Palette.FrameHover : Brushes.Transparent;
-                        titleBlock.Foreground = restFg;
                     }
                     rowScale.ScaleX = 1.0;
                     rowScale.ScaleY = 1.0;
@@ -5296,6 +5452,18 @@ namespace SearchBrowser
             if (tab == null) return;
             if (!wasCarrying)
             {
+                bool isIconsOnly = string.Equals(Store.Prefs.TabLayout, "IconsOnly", StringComparison.OrdinalIgnoreCase);
+                if (tab == _activeTab && !tab.Pinned && !isIconsOnly && Store.Prefs.ClickActiveTabEditsAddress)
+                {
+                    if (!string.Equals(_editingTabId, tab.Id, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _editingTabId = tab.Id;
+                        RefreshTabRows();
+                    }
+                    return;
+                }
+                _editingTabId = null;
+                CloseSiteCard();
                 await SelectTabAsync(tab);
                 return;
             }
@@ -5525,14 +5693,7 @@ namespace SearchBrowser
             });
             AddPopupMenuItem(popup, stack, "Site Information…", "", () =>
             {
-                bool isHttps = tab.Url != null && tab.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
-                bool paused = Shield.IsPaused(host);
-                MessageBox.Show(
-                    "Site: " + (string.IsNullOrEmpty(host) ? tab.Url : host) +
-                    "\nConnection: " + (isHttps ? "Secure (HTTPS)" : "Standard") +
-                    "\nAd & Tracker Shield: " + (paused ? "Paused on this site" : (Store.Prefs.ShieldEnabled ? "Active" : "Off")) +
-                    "\nDark Mode (Dusk): " + (PageFeatures.IsDuskDisabledForSite(host) ? "Disabled on this site" : "Automatic"),
-                    "Site Information", MessageBoxButton.OK, MessageBoxImage.Information);
+                ShowSiteCard(tab, null, false);
             }, isWebUrl && !tab.IsSleeping);
             AddPopupMenuItem(popup, stack, "Copy Address", "", () =>
             {
@@ -5616,6 +5777,8 @@ namespace SearchBrowser
 
             popup.IsOpen = true;
         }
+
+
 
         private static void AddMenuItem(ContextMenu menu, string header, Action action)
         {
@@ -7060,6 +7223,423 @@ namespace SearchBrowser
             if (openCardDirectly && canBookmark) renderCard();
             else renderList();
             popup.IsOpen = true;
+        }
+
+        private void UpdateAlwaysAddressLine()
+        {
+            if (_alwaysAddressInput == null) return;
+            if (!_alwaysAddressInput.IsKeyboardFocused)
+            {
+                string shown = (_activeTab != null && !string.IsNullOrEmpty(_activeTab.Url) && _activeTab.Url != "about:blank")
+                    ? Address.ShownAddress(_activeTab.Url)
+                    : "Search or enter address";
+                _alwaysAddressInput.Text = shown;
+                _alwaysAddressInput.Foreground = (_activeTab == null || string.IsNullOrEmpty(_activeTab.Url) || _activeTab.Url == "about:blank")
+                    ? Palette.FrameFaint : Palette.FrameMuted;
+            }
+            if (_alwaysAddressSiteBtn != null)
+            {
+                bool isWeb = _activeTab != null && !string.IsNullOrEmpty(_activeTab.Url) &&
+                    (_activeTab.Url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                     _activeTab.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+                _alwaysAddressSiteBtn.Visibility = isWeb ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private void CloseSiteCard()
+        {
+            if (_siteCardPopup != null)
+            {
+                _siteCardPopup.IsOpen = false;
+                _siteCardPopup = null;
+            }
+        }
+
+        // Exact 1:1 Windows port of driceroland/Search SiteCard.swift (floats over WebView2 via WPF Popup)
+        private void ShowSiteCard(BrowserTab tab, UIElement anchor, bool keepOpenForInlineEdit)
+        {
+            if (tab == null) return;
+            CloseSiteCard();
+
+            string url = tab.Url ?? "";
+            string host = Address.DisplayHost(url);
+            bool isHttp = url.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
+            bool isHttps = url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+            bool isWeb = isHttp || isHttps;
+            bool isLocal = isHttp && Address.IsLocalHost(host);
+            bool isSecure = isHttps || isLocal;
+            string siteTitle = !string.IsNullOrEmpty(host) ? host : (url.StartsWith("file://", StringComparison.OrdinalIgnoreCase) ? "File" : "Search");
+
+            var popup = new System.Windows.Controls.Primitives.Popup
+            {
+                AllowsTransparency = true,
+                StaysOpen = keepOpenForInlineEdit,
+                Placement = anchor != null
+                    ? System.Windows.Controls.Primitives.PlacementMode.Bottom
+                    : System.Windows.Controls.Primitives.PlacementMode.MousePoint,
+                PlacementTarget = anchor,
+                VerticalOffset = anchor != null ? 6 : 0,
+                HorizontalOffset = anchor != null ? -4 : 0
+            };
+            _siteCardPopup = popup;
+
+            Action finishAndClose = () =>
+            {
+                CloseSiteCard();
+                if (!string.IsNullOrEmpty(_editingTabId))
+                {
+                    _editingTabId = null;
+                    RefreshTabRows();
+                }
+            };
+
+            var stack = new StackPanel { Orientation = Orientation.Vertical };
+
+            // 1. Site header
+            stack.Children.Add(new TextBlock
+            {
+                Text = siteTitle,
+                FontSize = 12.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Palette.Ink,
+                Margin = new Thickness(12, 6, 12, 4),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxWidth = 240
+            });
+
+            // 2. Connection security row (click to expand deeper security info, matching SiteCard.swift)
+            if (isWeb)
+            {
+                var detailPanel = new Border
+                {
+                    Background = Palette.FrameHover,
+                    CornerRadius = new CornerRadius(7),
+                    Margin = new Thickness(8, 2, 8, 6),
+                    Padding = new Thickness(9, 7, 9, 7),
+                    Visibility = Visibility.Collapsed
+                };
+                var detailStack = new StackPanel();
+                detailStack.Children.Add(new TextBlock
+                {
+                    Text = isSecure
+                        ? (isLocal ? "Local server on this PC." : "Your connection to " + siteTitle + " is encrypted with HTTPS.")
+                        : "This page arrived over plain HTTP. Anyone on the network can read or alter it.",
+                    FontSize = 11,
+                    Foreground = Palette.MenuSecondary,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 220
+                });
+                detailPanel.Child = detailStack;
+
+                var secRow = new Border
+                {
+                    Height = 28,
+                    CornerRadius = new CornerRadius(6),
+                    Margin = new Thickness(4, 0, 4, 0),
+                    Padding = new Thickness(8, 0, 8, 0),
+                    Background = Brushes.Transparent,
+                    Cursor = Cursors.Hand
+                };
+                var secDock = new DockPanel();
+                var secChev = new TextBlock { Text = "›", FontSize = 13, Foreground = Palette.MenuSecondary, VerticalAlignment = VerticalAlignment.Center };
+                DockPanel.SetDock(secChev, Dock.Right);
+                secDock.Children.Add(secChev);
+                var secLeft = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                secLeft.Children.Add(new Border
+                {
+                    Width = 7, Height = 7, CornerRadius = new CornerRadius(3.5),
+                    Background = isSecure ? Palette.Safe : Palette.Unsafe,
+                    Margin = new Thickness(0, 0, 8, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                secLeft.Children.Add(new TextBlock
+                {
+                    Text = isSecure ? "Connection is secure" : "Connection is not secure",
+                    FontSize = 12,
+                    Foreground = isSecure ? Palette.Ink : Palette.Unsafe,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                secDock.Children.Add(secLeft);
+                secRow.Child = secDock;
+                secRow.MouseEnter += (s, e) => secRow.Background = Palette.MenuHot;
+                secRow.MouseLeave += (s, e) => secRow.Background = Brushes.Transparent;
+                secRow.MouseLeftButtonUp += (s, e) =>
+                {
+                    e.Handled = true;
+                    bool show = detailPanel.Visibility != Visibility.Visible;
+                    detailPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+                    secChev.Text = show ? "⌄" : "›";
+                };
+                stack.Children.Add(secRow);
+                stack.Children.Add(detailPanel);
+            }
+
+            // 3. Copy Address (+ Copy Clean Link when trackers present)
+            AddSiteCardActionRow(stack, "Copy Address", "Ctrl+Shift+C", () =>
+            {
+                SafeSetClipboardText(url);
+                finishAndClose();
+            });
+            string cleanUrl = CleanLink.Clean(url, true);
+            if (isWeb && !string.Equals(cleanUrl, url, StringComparison.Ordinal))
+            {
+                AddSiteCardActionRow(stack, "Copy Clean Link", "", () =>
+                {
+                    SafeSetClipboardText(cleanUrl);
+                    finishAndClose();
+                });
+            }
+
+            AddPopupSeparator(stack);
+
+            // 4. Print
+            AddSiteCardActionRow(stack, "Print…", "Ctrl+P", async () =>
+            {
+                finishAndClose();
+                if (tab.WebView != null && tab.IsWebViewInitialized && tab.WebView.CoreWebView2 != null)
+                {
+                    try { await tab.WebView.CoreWebView2.ExecuteScriptAsync("window.print()"); } catch { }
+                }
+            });
+
+            // 5. Zoom stepper (Zoom   [ - ]  100%  [ + ])
+            if (tab.WebView != null && tab.IsWebViewInitialized)
+            {
+                var zoomRow = new DockPanel
+                {
+                    Height = 30,
+                    Margin = new Thickness(12, 0, 8, 0)
+                };
+                var zoomControls = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                var zoomPctText = new TextBlock
+                {
+                    Text = Math.Round(tab.WebView.ZoomFactor * 100).ToString() + "%",
+                    FontSize = 12,
+                    Foreground = Palette.MenuSecondary,
+                    Width = 42,
+                    TextAlignment = TextAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Cursor = Cursors.Hand,
+                    ToolTip = "Reset to Actual Size"
+                };
+                zoomPctText.MouseLeftButtonUp += (s, e) =>
+                {
+                    e.Handled = true;
+                    tab.WebView.ZoomFactor = Store.Prefs.DefaultZoomPercent / 100.0;
+                    zoomPctText.Text = Math.Round(tab.WebView.ZoomFactor * 100).ToString() + "%";
+                };
+                var zoomOutBtn = CreateSiteCardStepButton(VectorIcons.MinusSmallPath, "Zoom Out", () =>
+                {
+                    tab.WebView.ZoomFactor = Math.Max(0.25, Math.Round((tab.WebView.ZoomFactor - 0.1) * 100) / 100.0);
+                    zoomPctText.Text = Math.Round(tab.WebView.ZoomFactor * 100).ToString() + "%";
+                });
+                var zoomInBtn = CreateSiteCardStepButton(VectorIcons.PlusPath, "Zoom In", () =>
+                {
+                    tab.WebView.ZoomFactor = Math.Min(3.0, Math.Round((tab.WebView.ZoomFactor + 0.1) * 100) / 100.0);
+                    zoomPctText.Text = Math.Round(tab.WebView.ZoomFactor * 100).ToString() + "%";
+                });
+                zoomControls.Children.Add(zoomOutBtn);
+                zoomControls.Children.Add(zoomPctText);
+                zoomControls.Children.Add(zoomInBtn);
+                DockPanel.SetDock(zoomControls, Dock.Right);
+                zoomRow.Children.Add(zoomControls);
+                zoomRow.Children.Add(new TextBlock
+                {
+                    Text = "Zoom",
+                    FontSize = 12,
+                    Foreground = Palette.Ink,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                stack.Children.Add(zoomRow);
+            }
+
+            // 6. Per-site toggle switches (Blocker, Dusk, Mute Sound, Keep This Site Awake)
+            if (isWeb && !tab.IsPrivate && Store.Prefs.ShieldEnabled && !string.IsNullOrEmpty(host))
+            {
+                bool blocking = !Shield.IsPaused(host);
+                AddSiteCardToggleRow(stack, "Block Ads and Trackers", blocking, next =>
+                {
+                    Shield.TogglePause(host);
+                    if (tab.WebView != null && tab.IsWebViewInitialized && tab.WebView.CoreWebView2 != null)
+                        tab.WebView.CoreWebView2.Reload();
+                });
+            }
+            if (isWeb && Palette.IsDark && Store.Prefs.DuskEnabled && !string.IsNullOrEmpty(host))
+            {
+                bool duskOn = !PageFeatures.IsDuskDisabledForSite(host);
+                AddSiteCardToggleRow(stack, "Darken This Site", duskOn, async next =>
+                {
+                    PageFeatures.ToggleDuskForSite(host);
+                    await tab.ApplySiteStyleSheetsAsync();
+                });
+            }
+            if (isWeb)
+            {
+                AddSiteCardToggleRow(stack, "Mute Tab Sound", tab.IsMuted, next =>
+                {
+                    tab.IsMuted = next;
+                    if (tab.WebView != null && tab.IsWebViewInitialized && tab.WebView.CoreWebView2 != null)
+                        tab.WebView.CoreWebView2.IsMuted = tab.IsMuted;
+                    RefreshTabRows();
+                    UpdateMediaPlayerCard();
+                });
+            }
+            if (isWeb)
+            {
+                AddSiteCardToggleRow(stack, "Keep This Site Awake", tab.KeepAwake, next =>
+                {
+                    tab.KeepAwake = next;
+                    RefreshTabRows();
+                    SaveCurrentSession();
+                });
+            }
+
+            if (isWeb)
+            {
+                AddPopupSeparator(stack);
+                AddSiteCardActionRow(stack, "Hide Elements…", "Ctrl+Shift+H", async () =>
+                {
+                    finishAndClose();
+                    if (tab == _activeTab) await ToggleVeilPickingAsync();
+                });
+                AddSiteCardActionRow(stack, "Edit Site Style…", "", () =>
+                {
+                    finishAndClose();
+                    ShowSiteStylesDrawer();
+                });
+            }
+
+            var card = new Border
+            {
+                MinWidth = 252,
+                Background = Palette.MenuBg,
+                BorderBrush = Palette.MenuBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12),
+                Padding = new Thickness(0, 6, 0, 6),
+                Margin = new Thickness(10, 4, 14, 14),
+                Effect = new DropShadowEffect { BlurRadius = 22, ShadowDepth = 6, Opacity = 0.28, Color = Colors.Black },
+                Child = stack
+            };
+            popup.Child = card;
+            popup.Closed += (s, e) =>
+            {
+                if (_siteCardPopup == popup) _siteCardPopup = null;
+            };
+            popup.IsOpen = true;
+        }
+
+        private void AddSiteCardActionRow(StackPanel stack, string title, string shortcut, Action onClick)
+        {
+            var row = new Border
+            {
+                Height = 28,
+                CornerRadius = new CornerRadius(6),
+                Margin = new Thickness(4, 0, 4, 0),
+                Padding = new Thickness(8, 0, 8, 0),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand
+            };
+            var dock = new DockPanel();
+            if (!string.IsNullOrEmpty(shortcut))
+            {
+                var keyTxt = new TextBlock
+                {
+                    Text = shortcut,
+                    FontSize = 11,
+                    Foreground = Palette.MenuSecondary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(16, 0, 0, 0)
+                };
+                DockPanel.SetDock(keyTxt, Dock.Right);
+                dock.Children.Add(keyTxt);
+            }
+            dock.Children.Add(new TextBlock
+            {
+                Text = title,
+                FontSize = 12,
+                Foreground = Palette.Ink,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            row.Child = dock;
+            row.MouseEnter += (s, e) => row.Background = Palette.MenuHot;
+            row.MouseLeave += (s, e) => row.Background = Brushes.Transparent;
+            row.MouseLeftButtonUp += (s, e) => { e.Handled = true; onClick(); };
+            stack.Children.Add(row);
+        }
+
+        private Border CreateSiteCardStepButton(string pathData, string tooltip, Action onClick)
+        {
+            var b = new Border
+            {
+                Width = 22,
+                Height = 22,
+                CornerRadius = new CornerRadius(6),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand,
+                ToolTip = tooltip,
+                Child = VectorIcons.Draw(pathData, Palette.Ink, 10, 1.55)
+            };
+            b.MouseEnter += (s, e) => b.Background = Palette.MenuHot;
+            b.MouseLeave += (s, e) => b.Background = Brushes.Transparent;
+            b.MouseLeftButtonUp += (s, e) => { e.Handled = true; onClick(); };
+            return b;
+        }
+
+        private void AddSiteCardToggleRow(StackPanel stack, string label, bool initialState, Action<bool> onToggle)
+        {
+            bool state = initialState;
+            var row = new Border
+            {
+                Height = 30,
+                CornerRadius = new CornerRadius(6),
+                Margin = new Thickness(4, 0, 4, 0),
+                Padding = new Thickness(8, 0, 8, 0),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand
+            };
+            var dock = new DockPanel();
+            var knob = new Border
+            {
+                Width = 12,
+                Height = 12,
+                CornerRadius = new CornerRadius(6),
+                Background = Palette.Ground,
+                HorizontalAlignment = state ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var track = new Border
+            {
+                Width = 28,
+                Height = 16,
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(2),
+                Background = state ? Palette.Ink : Palette.Faint,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(16, 0, 0, 0),
+                Child = knob
+            };
+            DockPanel.SetDock(track, Dock.Right);
+            dock.Children.Add(track);
+            dock.Children.Add(new TextBlock
+            {
+                Text = label,
+                FontSize = 12,
+                Foreground = Palette.Ink,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            row.Child = dock;
+            row.MouseEnter += (s, e) => row.Background = Palette.MenuHot;
+            row.MouseLeave += (s, e) => row.Background = Brushes.Transparent;
+            row.MouseLeftButtonUp += (s, e) =>
+            {
+                e.Handled = true;
+                state = !state;
+                track.Background = state ? Palette.Ink : Palette.Faint;
+                knob.HorizontalAlignment = state ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+                onToggle(state);
+            };
+            stack.Children.Add(row);
         }
 
         private void RefreshBookmarksBar()
