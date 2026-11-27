@@ -136,16 +136,15 @@ namespace SearchBrowser
 
         public static string BuildLeanWebViewArgs(bool blockWebRtcLeaks)
         {
+            // Stay ultra-light via native blank tab + 10s tab suspend + 3-tab LRU cap + disabled Edge bloat,
+            // WITHOUT hard-capping V8 heap or GPU memory so heavy apps like YouTube/Docs/Figma never OOM!
             string args =
                 "--enable-smooth-scrolling " +
-                "--process-per-site " +
-                "--renderer-process-limit=2 " +
+                "--renderer-process-limit=3 " +
                 "--disable-back-forward-cache " +
-                "--js-flags=--max-old-space-size=128,--optimize-for-size " +
-                "--force-gpu-mem-available-mb=128 " +
-                "--disable-gpu-shader-disk-cache " +
-                "--disk-cache-size=16777216 " +
-                "--media-cache-size=16777216 " +
+                "--js-flags=--optimize-for-size " +
+                "--disk-cache-size=33554432 " +
+                "--media-cache-size=33554432 " +
                 "--disable-crash-reporter " +
                 "--disable-breakpad " +
                 "--disable-metrics " +
