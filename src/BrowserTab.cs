@@ -134,6 +134,37 @@ namespace SearchBrowser
             }
         }
 
+        public static string BuildLeanWebViewArgs(bool blockWebRtcLeaks)
+        {
+            string args =
+                "--enable-smooth-scrolling " +
+                "--process-per-site " +
+                "--renderer-process-limit=2 " +
+                "--disable-back-forward-cache " +
+                "--js-flags=--max-old-space-size=128,--optimize-for-size " +
+                "--force-gpu-mem-available-mb=128 " +
+                "--disable-gpu-shader-disk-cache " +
+                "--disk-cache-size=16777216 " +
+                "--media-cache-size=16777216 " +
+                "--disable-crash-reporter " +
+                "--disable-breakpad " +
+                "--disable-metrics " +
+                "--disable-metrics-reporting " +
+                "--disable-background-networking " +
+                "--disable-component-update " +
+                "--disable-domain-reliability " +
+                "--disable-sync " +
+                "--disable-default-apps " +
+                "--disable-translate " +
+                "--disable-speech-api " +
+                "--disable-print-preview " +
+                "--enable-features=QuickIntensiveWakeUpThrottlingAfterLoading " +
+                "--disable-features=BackForwardCache,Prerender2,InterestFeedContentSuggestions,OptimizationHints,OptimizationGuideModelDownloading,MediaRouter,PrivacySandboxAdsAPIsOverride,BrowsingTopics,AttributionReportingCrossAppWeb,AutofillServerCommunication,CertificateTransparencyComponentUpdater,LiveCaption,msEdgeCollections,msEdgeSidebarV2,msEdgeDiscover,msEdgeShopping,msEdgeHistorySync,msEdgeAutofill,msEdgeWorkspaces,msEdgeSplitScreen,msEdgeDrop,msEdgeWallet,msEdgeMiniMenu,msEdgeReadAloud,msEdgeTranslate,PreloadMediaEngagementData";
+            if (blockWebRtcLeaks)
+                args += " --force-webrtc-ip-handling-policy=disable_non_proxied_udp";
+            return args;
+        }
+
         public static void CleanupStalePrivateSessions()
         {
             System.Threading.Tasks.Task.Run(() =>
@@ -143,6 +174,15 @@ namespace SearchBrowser
                     foreach (var d in Directory.GetDirectories(Path.GetTempPath(), "SearchBrowser_Priv*"))
                     {
                         try { Directory.Delete(d, true); } catch { }
+                    }
+                    // Also clean dead Crashpad dumps in WebView2Data so disk usage stays lean
+                    string crashReports = Path.Combine(Store.WebViewDataDir, "EBWebView", "Crashpad", "reports");
+                    if (Directory.Exists(crashReports))
+                    {
+                        foreach (var f in Directory.GetFiles(crashReports))
+                        {
+                            try { File.Delete(f); } catch { }
+                        }
                     }
                 }
                 catch { }
@@ -174,9 +214,7 @@ namespace SearchBrowser
                 {
                     _sharedPrivateDataDir = Path.Combine(Path.GetTempPath(), "SearchBrowser_PrivSession_" + Guid.NewGuid().ToString("N"));
                     _sharedPrivateSeed = new Random(Guid.NewGuid().GetHashCode()).Next(1000, 999999);
-                    string pArgs = "--enable-smooth-scrolling --renderer-process-limit=3 --js-flags=--max-old-space-size=192 --disk-cache-size=33554432 --media-cache-size=33554432 --disable-background-networking --disable-component-update --disable-domain-reliability --disable-breakpad --disable-sync --disable-default-apps --disable-translate --disable-speech-api --disable-print-preview --disable-features=InterestFeedContentSuggestions,OptimizationHints,MediaRouter,PrivacySandboxAdsAPIsOverride,BrowsingTopics,AttributionReportingCrossAppWeb,msEdgeCollections,msEdgeSidebarV2,msEdgeDiscover,msEdgeShopping,msEdgeHistorySync,msEdgeAutofill,PreloadMediaEngagementData";
-                    if (Store.Prefs != null && Store.Prefs.BlockWebRtcLeaks)
-                        pArgs += " --force-webrtc-ip-handling-policy=disable_non_proxied_udp";
+                    string pArgs = BuildLeanWebViewArgs(Store.Prefs != null && Store.Prefs.BlockWebRtcLeaks);
                     var pOpts = new CoreWebView2EnvironmentOptions
                     {
                         AdditionalBrowserArguments = pArgs,
@@ -227,26 +265,28 @@ namespace SearchBrowser
                 try { core.Profile.DefaultDownloadFolderPath = Store.Prefs.DownloadsFolder; } catch { }
             }
 
-            // Inject Search's startup scripts before any frame renders (including Shield, Anti-Fingerprinting Farbling, GPC, Peek, Video click-to-play)
-            await core.AddScriptToExecuteOnDocumentCreatedAsync(Shield.GetStartupScript());
-            await core.AddScriptToExecuteOnDocumentCreatedAsync(PageFeatures.CurtainPickerBootstrapScript);
+            // Combine all startup scripts into ONE single document-created script (5x less per-iframe JS overhead!)
+            var sbInit = new System.Text.StringBuilder(2048);
+            sbInit.Append(Shield.GetStartupScript()).Append("\n");
+            sbInit.Append(PageFeatures.CurtainPickerBootstrapScript).Append("\n");
             if ((Store.Prefs != null && Store.Prefs.AntiFingerprinting) || IsPrivate)
             {
                 int seed = IsPrivate ? (_sharedPrivateSeed != 0 ? _sharedPrivateSeed : Shield.SessionFingerprintSeed) : Shield.SessionFingerprintSeed;
-                await core.AddScriptToExecuteOnDocumentCreatedAsync(Shield.GetAntiFingerprintingScript(seed));
+                sbInit.Append(Shield.GetAntiFingerprintingScript(seed)).Append("\n");
             }
             if ((Store.Prefs != null && Store.Prefs.SendGpc) || IsPrivate)
             {
-                await core.AddScriptToExecuteOnDocumentCreatedAsync("try{Object.defineProperty(Navigator.prototype,'globalPrivacyControl',{get:function(){return true;},configurable:true});Object.defineProperty(Navigator.prototype,'doNotTrack',{get:function(){return '1';},configurable:true});}catch(e){}");
+                sbInit.Append("try{Object.defineProperty(Navigator.prototype,'globalPrivacyControl',{get:function(){return true;},configurable:true});Object.defineProperty(Navigator.prototype,'doNotTrack',{get:function(){return '1';},configurable:true});}catch(e){}\n");
             }
             if (Store.Prefs != null && Store.Prefs.VideosWaitForClick)
             {
-                await core.AddScriptToExecuteOnDocumentCreatedAsync("document.addEventListener('play',function(e){var v=e.target;if(v&&v.tagName==='VIDEO'&&!v.__userClicked){v.pause();}},true);document.addEventListener('pointerdown',function(e){var v=e.target&&e.target.closest?e.target.closest('video'):null;if(v)v.__userClicked=true;},true);");
+                sbInit.Append("document.addEventListener('play',function(e){var v=e.target;if(v&&v.tagName==='VIDEO'&&!v.__userClicked){v.pause();}},true);document.addEventListener('pointerdown',function(e){var v=e.target&&e.target.closest?e.target.closest('video'):null;if(v)v.__userClicked=true;},true);\n");
             }
             if (Store.Prefs != null && Store.Prefs.ShowReadingProgress)
             {
-                await core.AddScriptToExecuteOnDocumentCreatedAsync("window.addEventListener('scroll',function(){try{var h=Math.max(1,document.documentElement.scrollHeight-window.innerHeight);var p=Math.min(1,Math.max(0,window.scrollY/h));if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(JSON.stringify({type:'readProgress',val:p.toFixed(3)}));}catch(e){}},{passive:true});");
+                sbInit.Append("window.addEventListener('scroll',function(){try{var h=Math.max(1,document.documentElement.scrollHeight-window.innerHeight);var p=Math.min(1,Math.max(0,window.scrollY/h));if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage(JSON.stringify({type:'readProgress',val:p.toFixed(3)}));}catch(e){}},{passive:true});\n");
             }
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(sbInit.ToString());
 
             // Load enabled extensions once on non-private profile (never into private tabs)
             if (!IsPrivate && !_extensionsLoadedOnce)
@@ -625,6 +665,10 @@ namespace SearchBrowser
             try
             {
                 string host = Address.DisplayHost(Url);
+                bool needDusk = Palette.IsDark && Store.Prefs != null && Store.Prefs.DuskEnabled && !PageFeatures.IsDuskDisabledForSite(host);
+                bool needCurtain = PageFeatures.GetVeils(host).Count > 0;
+                bool needStyle = !string.IsNullOrEmpty(PageFeatures.GetSiteStyleCss(host));
+                if (!needDusk && !needCurtain && !needStyle) return;
                 string script = PageFeatures.BuildApplySheetsScript(host);
                 await WebView.CoreWebView2.ExecuteScriptAsync(script);
             }

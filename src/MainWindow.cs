@@ -766,7 +766,7 @@ namespace SearchBrowser
             Grid.SetColumn(_sidebarBorder, 0);
             _rootGrid.Children.Add(_sidebarBorder);
 
-            // 3. MAIN PAGE STAGE (CardEdge: 10px rounded corners, 0.08 alpha edge, subtle shadow)
+            // 3. MAIN PAGE STAGE (Official Design.swift:637 — crisp 1px hairline, NO full-screen GPU DropShadowEffect!)
             var stageOuterGrid = new Grid();
 
             _pageCardBorder = new Border
@@ -777,8 +777,7 @@ namespace SearchBrowser
                 CornerRadius = new CornerRadius(10),
                 Margin = new Thickness(0, 0, 8, 8),
                 ClipToBounds = true,
-                AllowDrop = true,
-                Effect = new DropShadowEffect { BlurRadius = 10, ShadowDepth = 1, Opacity = 0.08, Color = Colors.Black }
+                AllowDrop = true
             };
             _pageCardBorder.DragOver += OnStageDragOver;
             _pageCardBorder.Drop += OnStageDrop;
@@ -1723,12 +1722,48 @@ namespace SearchBrowser
         private static extern IntPtr GetCurrentProcess();
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
         private static extern bool SetProcessWorkingSetSize(IntPtr proc, IntPtr min, IntPtr max);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr hObject);
 
-        private static void TrimProcessWorkingSet()
+        private void TrimProcessWorkingSet(bool includeWebViewChildren = false)
         {
             try
             {
                 SetProcessWorkingSetSize(GetCurrentProcess(), (IntPtr)(-1), (IntPtr)(-1));
+            }
+            catch { }
+
+            if (!includeWebViewChildren || _sharedEnv == null) return;
+            try
+            {
+                var infos = _sharedEnv.GetProcessInfos();
+                if (infos == null) return;
+                var pids = new List<int>();
+                foreach (var info in infos)
+                {
+                    if (info.ProcessId > 0) pids.Add(info.ProcessId);
+                }
+                System.Threading.Tasks.Task.Run(() =>
+                {
+                    // PROCESS_SET_QUOTA (0x0100) | PROCESS_QUERY_LIMITED_INFORMATION (0x1000)
+                    foreach (int pid in pids)
+                    {
+                        IntPtr h = IntPtr.Zero;
+                        try
+                        {
+                            h = OpenProcess(0x1100, false, pid);
+                            if (h != IntPtr.Zero)
+                                SetProcessWorkingSetSize(h, (IntPtr)(-1), (IntPtr)(-1));
+                        }
+                        catch { }
+                        finally
+                        {
+                            if (h != IntPtr.Zero) try { CloseHandle(h); } catch { }
+                        }
+                    }
+                });
             }
             catch { }
         }
@@ -2003,9 +2038,13 @@ namespace SearchBrowser
             {
                 foreach (var t in _allTabs)
                 {
-                    if (!t.IsAudible && !t.KeepAwake) t.SetBackgroundMemoryState(true);
+                    if (!t.IsAudible && !t.KeepAwake)
+                    {
+                        t.SetBackgroundMemoryState(true);
+                        var _ = t.TrySuspendIfBackgroundAsync();
+                    }
                 }
-                TrimProcessWorkingSet();
+                TrimProcessWorkingSet(true);
                 return;
             }
             if (_activeTab != null) _activeTab.SetBackgroundMemoryState(false);
@@ -2359,14 +2398,13 @@ namespace SearchBrowser
             _rightPaneHost.SizeChanged += (s2, e2) => ApplyRoundedCornersToHost(_rightPaneHost);
             try
             {
-                // Ultra-lean Chromium/WebView2 memory profile:
-                // - Cap renderer process pool to 3 (same-site & duplicate tabs share renderers instead of spawning 100MB/tab!)
-                // - Cap V8 old-space & disk/media caches so idle memory doesn't balloon
-                // - Disable hidden Edge background utility services (Collections, Sidebar, Discover, Shopping, Sync, Breakpad)
-                // - Only enable Extension utility process if the user actually has extensions installed
-                string browserArgs = "--enable-smooth-scrolling --renderer-process-limit=3 --js-flags=--max-old-space-size=192 --disk-cache-size=33554432 --media-cache-size=33554432 --disable-background-networking --disable-component-update --disable-domain-reliability --disable-breakpad --disable-sync --disable-default-apps --disable-translate --disable-speech-api --disable-print-preview --disable-features=InterestFeedContentSuggestions,OptimizationHints,MediaRouter,PrivacySandboxAdsAPIsOverride,BrowsingTopics,AttributionReportingCrossAppWeb,msEdgeCollections,msEdgeSidebarV2,msEdgeDiscover,msEdgeShopping,msEdgeHistorySync,msEdgeAutofill,PreloadMediaEngagementData";
-                if (Store.Prefs != null && Store.Prefs.BlockWebRtcLeaks)
-                    browserArgs += " --force-webrtc-ip-handling-policy=disable_non_proxied_udp";
+                // Ultra-lean Chromium/WebView2 memory profile (shared across normal & private sessions):
+                // - --process-per-site + --renderer-process-limit=2 (max 2 renderers, same-site tabs share process)
+                // - --disable-back-forward-cache (stops holding full old-page DOMs & decoded images in RAM)
+                // - --js-flags=--max-old-space-size=128,--optimize-for-size (V8 compact mode & heap cap)
+                // - --force-gpu-mem-available-mb=128 (caps GPU texture cache bloat while preserving 60fps video decode)
+                // - 16MB disk/media cache caps & disabled crashpad/telemetry/Edge background utilities
+                string browserArgs = BrowserTab.BuildLeanWebViewArgs(Store.Prefs != null && Store.Prefs.BlockWebRtcLeaks);
                 var options = new CoreWebView2EnvironmentOptions
                 {
                     AdditionalBrowserArguments = browserArgs,
@@ -2509,6 +2547,22 @@ namespace SearchBrowser
                 _refreshCoalesceTimer.Start();
         }
 
+        private DispatcherTimer _saveSessionTimer;
+        private void ScheduleSaveSession()
+        {
+            if (_saveSessionTimer == null)
+            {
+                _saveSessionTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
+                _saveSessionTimer.Tick += (s, e) =>
+                {
+                    _saveSessionTimer.Stop();
+                    SaveCurrentSession();
+                };
+            }
+            _saveSessionTimer.Stop();
+            _saveSessionTimer.Start();
+        }
+
         private void AttachTabEvents(BrowserTab tab)
         {
             tab.StateChanged += t =>
@@ -2524,7 +2578,7 @@ namespace SearchBrowser
                         UpdateBookmarkDoorIcon();
                         UpdateAlwaysAddressLine();
                     }
-                    SaveCurrentSession();
+                    ScheduleSaveSession();
                 });
             };
 
@@ -3355,7 +3409,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0021";
+            const string currentVersion = "0.0022";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -3834,10 +3888,29 @@ namespace SearchBrowser
             }
         }
 
+        private int _sleepTickCount = 0;
+
         private async void CheckTabAutoSleep()
         {
-            // Stage 1: Native WebView2 TrySuspendAsync after 30s in background (0ms resume, near-zero CPU/RAM!)
-            DateTime suspendCutoff = DateTime.UtcNow.AddSeconds(-30);
+            _sleepTickCount++;
+            bool uiChanged = false;
+            bool trimmedAny = false;
+
+            // Stage 0: Immediately sleep background about:blank tabs (0ms to re-create, zero wasted WebView!)
+            foreach (var tab in _allTabs.ToList())
+            {
+                if (tab != _activeTab && tab != _splitLeftTab && tab != _splitRightTab &&
+                    !tab.KeepAwake && !tab.IsSleeping && tab.IsWebViewInitialized &&
+                    string.Equals(tab.Url, "about:blank", StringComparison.OrdinalIgnoreCase))
+                {
+                    tab.PutToSleep();
+                    uiChanged = true;
+                    trimmedAny = true;
+                }
+            }
+
+            // Stage 1: Native WebView2 TrySuspendAsync after 10s in background (0ms resume, 0% CPU!)
+            DateTime suspendCutoff = DateTime.UtcNow.AddSeconds(-10);
             foreach (var tab in _allTabs.ToList())
             {
                 if (tab != _activeTab && tab != _splitLeftTab && tab != _splitRightTab &&
@@ -3845,26 +3918,47 @@ namespace SearchBrowser
                     tab.LastTouchedUtc < suspendCutoff)
                 {
                     await tab.TrySuspendIfBackgroundAsync();
+                    trimmedAny = true;
                 }
             }
 
-            // Stage 2: Full PutToSleep (WebView disposal) after AutoSleepMinutes
+            // Stage 2: Hard LRU Awake-Tab Cap (max 3 awake tabs total, or 2 in Energy Saver) so RAM never snowballs!
+            int maxAwake = Store.Prefs.EnergySaver ? 2 : 3;
+            var awakeBg = _allTabs
+                .Where(t => t != _activeTab && t != _splitLeftTab && t != _splitRightTab &&
+                            !t.KeepAwake && !t.IsSleeping && !t.IsAudible && t.IsWebViewInitialized)
+                .OrderBy(t => t.LastTouchedUtc)
+                .ToList();
+            int totalAwake = _allTabs.Count(t => !t.IsSleeping && t.IsWebViewInitialized);
+            while (totalAwake > maxAwake && awakeBg.Count > 0)
+            {
+                var oldest = awakeBg[0];
+                awakeBg.RemoveAt(0);
+                oldest.PutToSleep();
+                totalAwake--;
+                uiChanged = true;
+                trimmedAny = true;
+            }
+
+            // Stage 3: Full PutToSleep (WebView disposal) after AutoSleepMinutes
             int mins = Store.Prefs.AutoSleepMinutes;
-            if (Store.Prefs.EnergySaver && mins > 10) mins = 10;
+            if (Store.Prefs.EnergySaver && mins > 5) mins = 5;
             if (mins > 0 && mins < 90000)
             {
                 DateTime cutoff = DateTime.UtcNow.AddMinutes(-mins);
-                foreach (var tab in _allTabs)
+                foreach (var tab in _allTabs.ToList())
                 {
                     if (tab != _activeTab && tab != _splitLeftTab && tab != _splitRightTab &&
                         !tab.KeepAwake && !tab.IsSleeping && !tab.IsAudible && tab.LastTouchedUtc < cutoff)
                     {
                         tab.PutToSleep();
+                        uiChanged = true;
+                        trimmedAny = true;
                     }
                 }
             }
 
-            // CloseIdleTabs (Oriel auto-archive: Never / After 12 hours / After 1 day / After 7 days / After a month)
+            // CloseIdleTabs (auto-archive: Never / After 12 hours / After 1 day / After 7 days / After a month)
             string idleSetting = Store.Prefs.CloseIdleTabs ?? "Never";
             TimeSpan idleSpan = TimeSpan.Zero;
             if (idleSetting == "After 12 hours") idleSpan = TimeSpan.FromHours(12);
@@ -3879,10 +3973,23 @@ namespace SearchBrowser
                     t != _activeTab && t != _splitLeftTab && t != _splitRightTab &&
                     !t.Pinned && string.IsNullOrEmpty(t.GroupId) && !t.KeepAwake && !t.IsAudible &&
                     t.LastTouchedUtc < idleCutoff).ToList();
-                foreach (var t in toClose) CloseTab(t);
+                if (toClose.Count > 0)
+                {
+                    foreach (var t in toClose) CloseTab(t);
+                    uiChanged = true;
+                    trimmedAny = true;
+                }
             }
 
-            RefreshTabRows();
+            // Only rebuild sidebar UI when something actually changed (zero idle CPU/GC!)
+            if (uiChanged) RefreshTabRows();
+
+            // Trim cold working-set pages from Search.exe & WebView2 child processes every ~60s or after sleeping tabs
+            if (trimmedAny || (_sleepTickCount % 4 == 0))
+            {
+                if (trimmedAny) GC.Collect(2, GCCollectionMode.Optimized, false);
+                TrimProcessWorkingSet(true);
+            }
         }
 
         private async void CycleSpace(int? explicitIndex = null)
