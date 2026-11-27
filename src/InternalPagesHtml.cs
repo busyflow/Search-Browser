@@ -1543,6 +1543,12 @@ namespace SearchBrowser
           </div></div>
           <div class='st-rule'></div>
           <div class='sr'><div class='sr-main'>
+            <div class='sr-tile'><svg viewBox='0 0 16 16'><circle cx='4' cy='8' r='1.5'/><circle cx='8' cy='8' r='1.5'/><circle cx='12' cy='8' r='1.5'/></svg></div>
+            <div class='sr-words'><div class='sr-title'>One button per space</div><div class='sr-detail'>Show every space as its own icon button, centred at the foot of the sidebar</div></div>
+            <div class='sr-control'>" + Sw("ShowSpaceButtons", p.ShowSpaceButtons) + @"</div>
+          </div></div>
+          <div class='st-rule'></div>
+          <div class='sr'><div class='sr-main'>
             <div class='sr-tile'><svg viewBox='0 0 16 16'><path d='M5 3v10M11 3v10M3 6h10M3 10h10'/></svg></div>
             <div class='sr-words'><div class='sr-title'>Ctrl+1 to Ctrl+9 switch spaces</div><div class='sr-detail'>Spaces take Ctrl+1 to Ctrl+9; tabs move to Alt+1 to Alt+9, as in Arc</div></div>
             <div class='sr-control'>" + Sw("CtrlNumbersSwitchSpaces", p.CtrlNumbersSwitchSpaces) + @"</div>
@@ -1592,6 +1598,12 @@ namespace SearchBrowser
             <div class='sr-tile'><svg viewBox='0 0 16 16'><rect x='2.5' y='3.5' width='11' height='9' rx='1.5'/><path d='M5 7h6'/></svg></div>
             <div class='sr-words'><div class='sr-title'>The field in the middle of the window</div><div class='sr-detail'>Ctrl+T's and Ctrl+L's field over a page, centred on the window and higher up</div></div>
             <div class='sr-control'>" + Sw("FieldInMiddleOfWindow", p.FieldInMiddleOfWindow) + @"</div>
+          </div></div>
+          <div class='st-rule'></div>
+          <div class='sr'><div class='sr-main'>
+            <div class='sr-tile'><svg viewBox='0 0 16 16'><rect x='2.5' y='3.5' width='11' height='9' rx='1.5'/></svg></div>
+            <div class='sr-words'><div class='sr-title'>Hide the page behind the field</div><div class='sr-detail'>Cover the whole page solidly while typing in Ctrl+T or Ctrl+L, instead of dimming it</div></div>
+            <div class='sr-control'>" + Sw("FieldHidesPage", p.FieldHidesPage) + @"</div>
           </div></div>
           <div class='st-rule'></div>
           <div class='sr'><div class='sr-main'>
@@ -1975,7 +1987,7 @@ namespace SearchBrowser
           <div class='sr'>
             <div class='sr-main'>
               <div class='sr-words'>
-                <div class='sr-title'>Search for Windows — v0.0020</div>
+                <div class='sr-title'>Search for Windows — v0.0021</div>
                 <div class='sr-detail'>Native Windows x64 + WebView2 port of driceroland/Search with Oriel UI design tokens. Lightweight ~290 KB executable, zero bundled Chromium or Electron overhead.</div>
               </div>
               <div class='sr-control'>

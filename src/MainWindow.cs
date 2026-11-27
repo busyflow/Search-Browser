@@ -141,12 +141,15 @@ namespace SearchBrowser
         private TextBlock _spaceTitleText;
         private StackPanel _spaceDotsPanel;
         private Border _spaceFooterBtn;
+        private StackPanel _spaceButtonsPanel;
+        private StackPanel _footerDoorsWrap;
         private Border _bmFooterBtn;
         private Border _extFooterBtn;
         private Border _dlFooterBtn;
         private Border _settingsFooterBtn;
         private Border _sidebarGripPill;
         private Border _mediaPlayerCard;
+        private System.Windows.Controls.Primitives.Popup _spaceToastPopup;
         private Border _spaceToast;
         private TextBlock _spaceToastText;
         private DispatcherTimer _spaceToastTimer;
@@ -171,11 +174,19 @@ namespace SearchBrowser
         // Floating Omnibox / Tab Switcher (Ctrl+L / Ctrl+K / Ctrl+T)
         private System.Windows.Controls.Primitives.Popup _omniboxPopup;
         private Grid _omniboxOverlay;
+        private Border _omniboxScrim;
         private StackPanel _omniboxContainer;
+        private Border _omniboxBreathHalo;
+        private ScaleTransform _omniboxBreathScale;
         private Border _omniboxCard;
         private Border _siteChipBorder;
         private TextBlock _siteChipText;
+        private TextBlock _omniboxPlaceholder;
         private TextBox _omniboxInput;
+        private string _activeSiteSearchName;
+        private string _activeSiteSearchTemplate;
+        private string _pendingSiteSearchName;
+        private string _pendingSiteSearchTemplate;
         private StackPanel _omniboxOffersStack;
         private Border _omniboxOffersBorder;
         private bool _omniboxIsTabSwitcherMode;
@@ -582,22 +593,44 @@ namespace SearchBrowser
             };
             footerStack.Children.Add(_mediaPlayerCard);
 
+            // Floating Capsule Space Toast (Spaces.swift:954-970 & 540-543) — floats above SpaceDot or bottom-center of page
+            _spaceToastText = new TextBlock
+            {
+                FontSize = 11.5,
+                FontWeight = FontWeights.Medium,
+                Foreground = Palette.Ink,
+                VerticalAlignment = VerticalAlignment.Center
+            };
             _spaceToast = new Border
             {
-                CornerRadius = new CornerRadius(7),
-                Background = Palette.FrameTile,
-                Padding = new Thickness(8, 4, 8, 4),
-                Margin = new Thickness(0, 0, 0, 4),
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Visibility = Visibility.Collapsed
+                CornerRadius = new CornerRadius(999),
+                Background = Palette.Ground,
+                BorderBrush = Palette.Hairline,
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(12, 5, 12, 5),
+                Margin = new Thickness(8, 4, 8, 8),
+                IsHitTestVisible = false,
+                Effect = new DropShadowEffect { BlurRadius = 14, ShadowDepth = 3, Opacity = 0.22, Color = Colors.Black },
+                Child = _spaceToastText
             };
-            _spaceToastText = new TextBlock { FontSize = 11.5, FontWeight = FontWeights.Medium, Foreground = Palette.Ink };
-            _spaceToast.Child = _spaceToastText;
-            footerStack.Children.Add(_spaceToast);
+            _spaceToastPopup = new System.Windows.Controls.Primitives.Popup
+            {
+                Child = _spaceToast,
+                AllowsTransparency = true,
+                StaysOpen = true,
+                PopupAnimation = System.Windows.Controls.Primitives.PopupAnimation.Fade
+            };
 
-            // Official driceroland/Search SideFoot (Side.swift:2018): [SpaceDot] [Extensions] [Bookmarks] [Downloads] grouped left, quiet Settings sliders on right
-            var footerRow = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
-            var leftFooterDoors = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            // Official driceroland/Search SideFoot (Side.swift:2018-2030):
+            // Default: [SpaceDot] [Extensions] [Bookmarks] [Downloads] grouped left, quiet Settings sliders on right
+            // One button per space (ShowSpaceButtons): [Extensions] [Bookmarks] [SpaceButtons...] [Downloads] centred at the foot!
+            var footerRow = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            _footerDoorsWrap = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
             _spaceFooterBtn = new Border
             {
                 Width = 26,
@@ -617,24 +650,30 @@ namespace SearchBrowser
             _extFooterBtn.Margin = new Thickness(0, 0, 2, 0);
             _bmFooterBtn = CreateVectorIconButton(VectorIcons.BookmarkPath, "Bookmarks (Ctrl+Shift+B)", () => ShowBookmarksPopover(_bmFooterBtn));
             _bmFooterBtn.Margin = new Thickness(0, 0, 2, 0);
+            _spaceButtonsPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                Visibility = Visibility.Collapsed
+            };
             _dlFooterBtn = CreateVectorIconButton(VectorIcons.DownloadsPath, "Downloads (Ctrl+J)", () => ShowDownloadsDrawer());
             _dlFooterBtn.Margin = new Thickness(0, 0, 2, 0);
 
-            leftFooterDoors.Children.Add(_spaceFooterBtn);
-            leftFooterDoors.Children.Add(_extFooterBtn);
-            leftFooterDoors.Children.Add(_bmFooterBtn);
-            leftFooterDoors.Children.Add(_dlFooterBtn);
-            DockPanel.SetDock(leftFooterDoors, Dock.Left);
-            footerRow.Children.Add(leftFooterDoors);
+            _footerDoorsWrap.Children.Add(_spaceFooterBtn);
+            _footerDoorsWrap.Children.Add(_extFooterBtn);
+            _footerDoorsWrap.Children.Add(_bmFooterBtn);
+            _footerDoorsWrap.Children.Add(_spaceButtonsPanel);
+            _footerDoorsWrap.Children.Add(_dlFooterBtn);
+            footerRow.Children.Add(_footerDoorsWrap);
 
             _settingsFooterBtn = CreateVectorIconButton(VectorIcons.SlidersPath, "Settings (Ctrl+,)", () => OpenOrSelectSettingsTab());
             _settingsFooterBtn.Margin = new Thickness(0);
+            _settingsFooterBtn.HorizontalAlignment = HorizontalAlignment.Right;
+            _settingsFooterBtn.VerticalAlignment = VerticalAlignment.Center;
             _settingsFooterBtn.Opacity = 0.72;
             _settingsFooterBtn.MouseEnter += (s, e) => _settingsFooterBtn.Opacity = 1.0;
             _settingsFooterBtn.MouseLeave += (s, e) => _settingsFooterBtn.Opacity = 0.72;
-            DockPanel.SetDock(_settingsFooterBtn, Dock.Right);
             footerRow.Children.Add(_settingsFooterBtn);
-            footerRow.Children.Add(new Grid());
             footerStack.Children.Add(footerRow);
 
             DockPanel.SetDock(footerStack, Dock.Bottom);
@@ -1342,24 +1381,49 @@ namespace SearchBrowser
             _omniboxOverlay = new Grid
             {
                 Background = Brushes.Transparent,
-                Visibility = Visibility.Visible,
-                Width = 600,
-                Height = 460
+                Visibility = Visibility.Visible
             };
-            _omniboxOverlay.MouseLeftButtonDown += (s, e) =>
+            // Official Omnibox.swift:95-98 — 74% Ground scrim dimming the page (or 100% if FieldHidesPage is on)
+            _omniboxScrim = new Border
             {
-                if (e.OriginalSource == _omniboxOverlay)
+                Background = Palette.OverlayScrim,
+                CornerRadius = new CornerRadius(10)
+            };
+            _omniboxScrim.MouseLeftButtonDown += (s, e) =>
+            {
+                if (e.OriginalSource == _omniboxScrim || e.OriginalSource == _omniboxOverlay)
                     HideOmnibox();
             };
+            _omniboxOverlay.Children.Add(_omniboxScrim);
 
-            // Top-anchored inside fixed-height popup container so offers hang BELOW without jumping the input field upward
+            // Top-anchored inside full-page overlay so offers hang below without jumping the field upward
             _omniboxContainer = new StackPanel
             {
                 VerticalAlignment = VerticalAlignment.Top,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 28, 0, 0),
+                Margin = new Thickness(0, 140, 0, 0),
                 Width = 560
             };
+
+            // Official Omnibox.swift:440-512 — Breath halo behind the 560x50 field
+            var fieldHost = new Grid { Height = 50 };
+            _omniboxBreathScale = new ScaleTransform(1.0, 1.0);
+            _omniboxBreathHalo = new Border
+            {
+                CornerRadius = new CornerRadius(20),
+                Background = Palette.Ground,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = _omniboxBreathScale,
+                IsHitTestVisible = false,
+                Effect = new DropShadowEffect
+                {
+                    Color = Palette.Ink.Color,
+                    BlurRadius = 48,
+                    ShadowDepth = 0,
+                    Opacity = Palette.IsDark ? 0.24 : 0.12
+                }
+            };
+            fieldHost.Children.Add(_omniboxBreathHalo);
 
             _omniboxCard = new Border
             {
@@ -1369,7 +1433,7 @@ namespace SearchBrowser
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(14),
                 Padding = new Thickness(22, 0, 22, 0),
-                Effect = new DropShadowEffect { BlurRadius = 40, ShadowDepth = 8, Opacity = 0.14 }
+                Effect = new DropShadowEffect { BlurRadius = 28, ShadowDepth = 8, Opacity = 0.12, Color = Colors.Black }
             };
 
             var inputDock = new DockPanel { VerticalAlignment = VerticalAlignment.Center };
@@ -1393,6 +1457,15 @@ namespace SearchBrowser
             DockPanel.SetDock(_siteChipBorder, Dock.Left);
             inputDock.Children.Add(_siteChipBorder);
 
+            var inputLayer = new Grid { VerticalAlignment = VerticalAlignment.Center };
+            _omniboxPlaceholder = new TextBlock
+            {
+                Text = "Enter a web address",
+                FontSize = 15.5,
+                Foreground = Palette.FrameFaint,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
             _omniboxInput = new TextBox
             {
                 FontSize = 15.5,
@@ -1402,23 +1475,30 @@ namespace SearchBrowser
                 BorderThickness = new Thickness(0),
                 VerticalContentAlignment = VerticalAlignment.Center
             };
-            _omniboxInput.TextChanged += (s, e) => RefreshOmniboxOffers();
+            _omniboxInput.TextChanged += (s, e) =>
+            {
+                UpdateOmniboxPlaceholder();
+                RefreshOmniboxOffers();
+            };
             _omniboxInput.PreviewKeyDown += OnOmniboxPreviewKeyDown;
-            inputDock.Children.Add(_omniboxInput);
+            inputLayer.Children.Add(_omniboxPlaceholder);
+            inputLayer.Children.Add(_omniboxInput);
+            inputDock.Children.Add(inputLayer);
 
             _omniboxCard.Child = inputDock;
-            _omniboxContainer.Children.Add(_omniboxCard);
+            fieldHost.Children.Add(_omniboxCard);
+            _omniboxContainer.Children.Add(fieldHost);
 
             _omniboxOffersBorder = new Border
             {
-                Background = Palette.CardSurface,
-                BorderBrush = Palette.CardEdge,
+                Background = Palette.Ground,
+                BorderBrush = Palette.Hairline,
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(12),
+                CornerRadius = new CornerRadius(14),
                 Margin = new Thickness(0, 8, 0, 0),
                 Padding = new Thickness(6),
                 Visibility = Visibility.Collapsed,
-                Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 6, Opacity = 0.18 }
+                Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 6, Opacity = 0.14, Color = Colors.Black }
             };
             _omniboxOffersStack = new StackPanel { Orientation = Orientation.Vertical };
             _omniboxOffersBorder.Child = _omniboxOffersStack;
@@ -1429,16 +1509,82 @@ namespace SearchBrowser
             {
                 Child = _omniboxOverlay,
                 PlacementTarget = _pageCardBorder,
-                Placement = System.Windows.Controls.Primitives.PlacementMode.Center,
+                Placement = System.Windows.Controls.Primitives.PlacementMode.Relative,
                 AllowsTransparency = true,
                 StaysOpen = false,
                 PopupAnimation = System.Windows.Controls.Primitives.PopupAnimation.Fade
             };
             _omniboxPopup.Closed += (s, e) =>
             {
+                StopOmniboxBreath();
                 if (_activeTab != null && _activeTab.WebView != null)
                     _activeTab.WebView.Focus();
             };
+        }
+
+        private void UpdateOmniboxPlaceholder()
+        {
+            if (_omniboxPlaceholder == null || _omniboxInput == null) return;
+            bool empty = string.IsNullOrEmpty(_omniboxInput.Text);
+            _omniboxPlaceholder.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+            if (!string.IsNullOrEmpty(_activeSiteSearchName))
+                _omniboxPlaceholder.Text = "Search " + _activeSiteSearchName + "…";
+            else if (_omniboxIsTabSwitcherMode)
+                _omniboxPlaceholder.Text = "Switch to a tab";
+            else if (_omniboxIsNewTabMode)
+                _omniboxPlaceholder.Text = "New tab: enter a web address";
+            else
+                _omniboxPlaceholder.Text = "This tab: enter a web address";
+        }
+
+        private void StartOmniboxBreath()
+        {
+            if (_omniboxBreathHalo == null || _omniboxBreathScale == null) return;
+            _omniboxBreathHalo.Background = Palette.Ground;
+            _omniboxBreathHalo.Effect = new DropShadowEffect
+            {
+                Color = Palette.Ink.Color,
+                BlurRadius = 48,
+                ShadowDepth = 0,
+                Opacity = Palette.IsDark ? 0.24 : 0.12
+            };
+            if (Store.Prefs != null && Store.Prefs.ReduceAnimations)
+            {
+                _omniboxBreathScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                _omniboxBreathScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                _omniboxBreathHalo.BeginAnimation(UIElement.OpacityProperty, null);
+                _omniboxBreathScale.ScaleX = 1.0;
+                _omniboxBreathScale.ScaleY = 1.0;
+                _omniboxBreathHalo.Opacity = 1.0;
+                return;
+            }
+            var ease = new System.Windows.Media.Animation.SineEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut };
+            var scaleAnim = new System.Windows.Media.Animation.DoubleAnimation(0.97, 1.03, TimeSpan.FromSeconds(2.6))
+            {
+                AutoReverse = true,
+                RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever,
+                EasingFunction = ease
+            };
+            var opAnim = new System.Windows.Media.Animation.DoubleAnimation(0.65, 1.0, TimeSpan.FromSeconds(2.6))
+            {
+                AutoReverse = true,
+                RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever,
+                EasingFunction = ease
+            };
+            _omniboxBreathScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleAnim);
+            _omniboxBreathScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleAnim);
+            _omniboxBreathHalo.BeginAnimation(UIElement.OpacityProperty, opAnim);
+        }
+
+        private void StopOmniboxBreath()
+        {
+            if (_omniboxBreathScale != null)
+            {
+                _omniboxBreathScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                _omniboxBreathScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            }
+            if (_omniboxBreathHalo != null)
+                _omniboxBreathHalo.BeginAnimation(UIElement.OpacityProperty, null);
         }
 
         private void BuildSwitcherPopup()
@@ -3209,7 +3355,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0020";
+            const string currentVersion = "0.0021";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -3766,20 +3912,47 @@ namespace SearchBrowser
             RefreshTabRows();
         }
 
-        private void ShowSpaceToast(string spaceName)
+        private void ShowSpaceToast(string spaceName, bool forceBottomCenter = false)
         {
-            if (_spaceToast == null || _spaceToastText == null) return;
+            if (_spaceToastPopup == null || _spaceToast == null || _spaceToastText == null) return;
             _spaceToastText.Text = spaceName;
             _spaceToastText.Foreground = Palette.Ink;
-            _spaceToast.Background = Palette.FrameTile;
-            _spaceToast.Visibility = Visibility.Visible;
+            _spaceToast.Background = Palette.Ground;
+            _spaceToast.BorderBrush = Palette.Hairline;
+
+            bool useBottomCenter = forceBottomCenter || Store.Prefs.ShowSpaceButtons || Store.Prefs.SidebarCollapsed || _isFullScreen ||
+                string.Equals(Store.Prefs.TabLayout, "Top", StringComparison.OrdinalIgnoreCase);
+
+            if (!useBottomCenter && _spaceFooterBtn != null && _spaceFooterBtn.Visibility == Visibility.Visible)
+            {
+                // Official SpaceDot overlay: floating Capsule right above the Space icon (Spaces.swift:954-969)
+                _spaceToastPopup.PlacementTarget = _spaceFooterBtn;
+                _spaceToastPopup.Placement = System.Windows.Controls.Primitives.PlacementMode.Top;
+                _spaceToastPopup.HorizontalOffset = -4;
+                _spaceToastPopup.VerticalOffset = -4;
+            }
+            else
+            {
+                // Official announce(space.name): floating Capsule centered near bottom of page card (Spaces.swift:540-543)
+                double pw = (_pageCardBorder != null && _pageCardBorder.ActualWidth > 0) ? _pageCardBorder.ActualWidth : 800;
+                double ph = (_pageCardBorder != null && _pageCardBorder.ActualHeight > 0) ? _pageCardBorder.ActualHeight : 600;
+                _spaceToast.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                double tw = Math.Max(80, _spaceToast.DesiredSize.Width);
+                _spaceToastPopup.PlacementTarget = _pageCardBorder;
+                _spaceToastPopup.Placement = System.Windows.Controls.Primitives.PlacementMode.Relative;
+                _spaceToastPopup.HorizontalOffset = Math.Max(12, (pw - tw) / 2.0);
+                _spaceToastPopup.VerticalOffset = Math.Max(20, ph - 52);
+            }
+
+            _spaceToastPopup.IsOpen = false;
+            _spaceToastPopup.IsOpen = true;
             if (_spaceToastTimer == null)
             {
                 _spaceToastTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1400) };
                 _spaceToastTimer.Tick += (s, e) =>
                 {
                     _spaceToastTimer.Stop();
-                    _spaceToast.Visibility = Visibility.Collapsed;
+                    if (_spaceToastPopup != null) _spaceToastPopup.IsOpen = false;
                 };
             }
             _spaceToastTimer.Stop();
@@ -3790,10 +3963,62 @@ namespace SearchBrowser
         {
             var sp = Store.Spaces.FirstOrDefault(s => s.Id == Store.Prefs.ActiveSpaceId) ?? Store.Spaces[0];
             _spaceTitleText.Text = "●  " + sp.Name;
+            Color spC1, spC2;
+            bool spGrad;
+            bool hasTint = TryGetSpaceColorSpec(sp.ColorKey, out spC1, out spC2, out spGrad);
+            Brush activeSpaceBrush = hasTint ? (Brush)new SolidColorBrush(spC1) : Palette.FrameMuted;
             if (_spaceFooterBtn != null)
             {
-                _spaceFooterBtn.Child = VectorIcons.Draw(VectorIcons.GetSpaceIconPath(sp.IconName), Palette.FrameMuted, 13, 1.5);
+                _spaceFooterBtn.Child = VectorIcons.Draw(VectorIcons.GetSpaceIconPath(sp.IconName), hasTint ? activeSpaceBrush : Palette.FrameMuted, 13, 1.5);
+                _spaceFooterBtn.Background = hasTint ? (Brush)new SolidColorBrush(Color.FromArgb(36, spC1.R, spC1.G, spC1.B)) : Brushes.Transparent;
                 _spaceFooterBtn.ToolTip = sp.Name + " (Alt+1..9)";
+            }
+            if (_spaceButtonsPanel != null)
+            {
+                _spaceButtonsPanel.Children.Clear();
+                for (int i = 0; i < Store.Spaces.Count; i++)
+                {
+                    var sItem = Store.Spaces[i];
+                    bool isCur = string.Equals(sItem.Id, sp.Id, StringComparison.OrdinalIgnoreCase);
+                    Color c1, c2;
+                    bool g;
+                    bool tinted = TryGetSpaceColorSpec(sItem.ColorKey, out c1, out c2, out g);
+                    Brush fg = isCur ? (tinted ? (Brush)new SolidColorBrush(c1) : Palette.Ink) : Palette.FrameMuted;
+                    Brush bg = isCur
+                        ? (tinted ? (Brush)new SolidColorBrush(Color.FromArgb(46, c1.R, c1.G, c1.B)) : Palette.FrameWash)
+                        : Brushes.Transparent;
+                    var btn = new Border
+                    {
+                        Width = 26,
+                        Height = 26,
+                        CornerRadius = new CornerRadius(8),
+                        Background = bg,
+                        Margin = new Thickness(1, 0, 1, 0),
+                        Cursor = Cursors.Hand,
+                        Opacity = isCur ? 1.0 : 0.78,
+                        ToolTip = isCur ? (sItem.Name + " — click for Space menu") : (sItem.Name + " (Alt+" + (i + 1) + ")"),
+                        Child = VectorIcons.Draw(VectorIcons.GetSpaceIconPath(sItem.IconName), fg, 12, 1.5)
+                    };
+                    int capIdx = i;
+                    bool capCur = isCur;
+                    btn.MouseEnter += (s, e) =>
+                    {
+                        if (!capCur) btn.Background = Palette.FrameHover;
+                        btn.Opacity = 1.0;
+                    };
+                    btn.MouseLeave += (s, e) =>
+                    {
+                        btn.Background = bg;
+                        btn.Opacity = capCur ? 1.0 : 0.78;
+                    };
+                    btn.MouseLeftButtonUp += (s, e) =>
+                    {
+                        e.Handled = true;
+                        if (capCur) ShowSpacesMenu(btn);
+                        else CycleSpace(capIdx);
+                    };
+                    _spaceButtonsPanel.Children.Add(btn);
+                }
             }
             ApplyChromeThemeBrush();
 
@@ -3874,7 +4099,10 @@ namespace SearchBrowser
             if (_topDlDoor != null) _topDlDoor.Visibility = (showAtTop && showDl) ? Visibility.Visible : Visibility.Collapsed;
             if (_bmDoor != null) _bmDoor.Visibility = (showAtTop && Store.Prefs.ShowBookmarksBtn) ? Visibility.Visible : Visibility.Collapsed;
 
-            if (_spaceFooterBtn != null) _spaceFooterBtn.Visibility = (Store.Prefs.SpacesEnabled || Store.Prefs.ShowProfileBtn) ? Visibility.Visible : Visibility.Collapsed;
+            bool showSpaceBtns = Store.Prefs.SpacesEnabled && Store.Prefs.ShowSpaceButtons && !showAtTop;
+            if (_spaceFooterBtn != null) _spaceFooterBtn.Visibility = (!showSpaceBtns && (Store.Prefs.SpacesEnabled || Store.Prefs.ShowProfileBtn)) ? Visibility.Visible : Visibility.Collapsed;
+            if (_spaceButtonsPanel != null) _spaceButtonsPanel.Visibility = showSpaceBtns ? Visibility.Visible : Visibility.Collapsed;
+            if (_footerDoorsWrap != null) _footerDoorsWrap.HorizontalAlignment = showSpaceBtns ? HorizontalAlignment.Center : HorizontalAlignment.Left;
             if (_bmFooterBtn != null) _bmFooterBtn.Visibility = (!showAtTop && Store.Prefs.ShowBookmarksBtn) ? Visibility.Visible : Visibility.Collapsed;
             if (_extFooterBtn != null) _extFooterBtn.Visibility = (!showAtTop && Store.Prefs.ShowExtBtn) ? Visibility.Visible : Visibility.Collapsed;
             if (_dlFooterBtn != null) _dlFooterBtn.Visibility = (!showAtTop && showDl) ? Visibility.Visible : Visibility.Collapsed;
@@ -5787,10 +6015,10 @@ namespace SearchBrowser
             menu.Items.Add(item);
         }
 
-        // OMNIBOX ("One field." from Search README)
+        // OMNIBOX ("One field." from Search README + Omnibox.swift 1:1)
         public void ShowOmnibox(bool tabSwitcherMode, bool newTabMode = false)
         {
-            // Ctrl+L toggles closed if already open in the same mode
+            // Ctrl+L / Ctrl+T toggles closed if already open in the same mode
             if (_omniboxPopup != null && _omniboxPopup.IsOpen &&
                 _omniboxIsTabSwitcherMode == tabSwitcherMode && _omniboxIsNewTabMode == (newTabMode && !tabSwitcherMode))
             {
@@ -5799,50 +6027,87 @@ namespace SearchBrowser
             }
             _omniboxIsTabSwitcherMode = tabSwitcherMode;
             _omniboxIsNewTabMode = newTabMode && !tabSwitcherMode;
+            _activeSiteSearchName = null;
+            _activeSiteSearchTemplate = null;
+            _pendingSiteSearchName = null;
+            _pendingSiteSearchTemplate = null;
             SetDrawerVisible(false);
+            CloseSiteCard();
+
+            // Size overlay to full page card (or full window if FieldInMiddleOfWindow is on) so the 74% dimming scrim covers everything!
+            bool wholeWindow = Store.Prefs.FieldInMiddleOfWindow;
+            FrameworkElement targetEl = wholeWindow ? (FrameworkElement)_rootGrid : (FrameworkElement)_pageCardBorder;
+            double ow = (targetEl != null && targetEl.ActualWidth > 100) ? targetEl.ActualWidth : Math.Max(640, ActualWidth);
+            double oh = (targetEl != null && targetEl.ActualHeight > 100) ? targetEl.ActualHeight : Math.Max(420, ActualHeight);
+            _omniboxPopup.PlacementTarget = targetEl;
+            _omniboxPopup.Placement = System.Windows.Controls.Primitives.PlacementMode.Relative;
+            _omniboxPopup.HorizontalOffset = 0;
+            _omniboxPopup.VerticalOffset = 0;
+            _omniboxOverlay.Width = ow;
+            _omniboxOverlay.Height = oh;
+            _omniboxScrim.Background = Store.Prefs.FieldHidesPage ? (Brush)Palette.Ground : Palette.OverlayScrim;
+            _omniboxScrim.CornerRadius = new CornerRadius((!wholeWindow && Store.Prefs.PageAsCard) ? 10 : 0);
+
+            double fieldW = Math.Min(560, Math.Max(300, ow - 28));
+            _omniboxContainer.Width = fieldW;
+            // Official Omnibox.swift:70 & 120: 24% down when high/window-centered, or lifted 60px above dead center
+            double topOffset = wholeWindow ? Math.Max(44, oh * 0.22) : Math.Max(48, (oh - 50) / 2.0 - 45);
+            _omniboxContainer.Margin = new Thickness(0, topOffset, 0, 0);
+
             _omniboxCard.Background = Palette.Ground;
             _omniboxCard.BorderBrush = Palette.Hairline;
             _omniboxInput.Foreground = Palette.Ink;
             _omniboxInput.CaretBrush = Palette.Ink;
-            _omniboxOffersBorder.Background = Palette.CardSurface;
-            _omniboxOffersBorder.BorderBrush = Palette.CardEdge;
-            if (_omniboxContainer != null)
-            {
-                _omniboxContainer.Margin = Store.Prefs.FieldInMiddleOfWindow
-                    ? new Thickness(0, 12, 0, 0)
-                    : new Thickness(0, 48, 0, 0);
-            }
-            _omniboxPopup.IsOpen = true;
+            _omniboxPlaceholder.Foreground = Palette.FrameFaint;
+            _siteChipBorder.Background = Palette.Wash;
+            _siteChipText.Foreground = Palette.Ink;
+            _siteChipBorder.Visibility = Visibility.Collapsed;
+            _omniboxOffersBorder.Background = Palette.Ground;
+            _omniboxOffersBorder.BorderBrush = Palette.Hairline;
 
-            if (tabSwitcherMode)
+            if (tabSwitcherMode || _omniboxIsNewTabMode)
             {
-                _siteChipText.Text = "Switch Tab";
-                _siteChipBorder.Visibility = Visibility.Visible;
-                _omniboxInput.Text = "";
-            }
-            else if (_omniboxIsNewTabMode)
-            {
-                _siteChipText.Text = "New tab: enter a web address";
-                _siteChipBorder.Visibility = Visibility.Visible;
                 _omniboxInput.Text = "";
             }
             else
             {
                 string currentUrl = _activeTab != null ? _activeTab.Url : "";
-                _siteChipBorder.Visibility = Visibility.Collapsed;
-                _omniboxInput.Text = (currentUrl == "about:blank" || (currentUrl != null && currentUrl.StartsWith("search://"))) ? "" : Address.ShownAddress(currentUrl);
+                _omniboxInput.Text = (currentUrl == "about:blank" || (currentUrl != null && currentUrl.StartsWith("search://"))) ? "" : Address.EditableAddress(currentUrl);
             }
 
+            UpdateOmniboxPlaceholder();
+            _omniboxPopup.IsOpen = true;
+            StartOmniboxBreath();
             RefreshOmniboxOffers();
             FocusPopupControl(_omniboxInput, true);
         }
 
         private void HideOmnibox()
         {
+            StopOmniboxBreath();
+            _activeSiteSearchName = null;
+            _activeSiteSearchTemplate = null;
             if (_omniboxPopup != null) _omniboxPopup.IsOpen = false;
             if (_activeTab != null && _activeTab.WebView != null)
                 _activeTab.WebView.Focus();
         }
+
+        private static readonly Tuple<string, string, string>[] BuiltInSiteSearches = new[]
+        {
+            Tuple.Create("youtube", "YouTube", "https://www.youtube.com/results?search_query=%s"),
+            Tuple.Create("yt", "YouTube", "https://www.youtube.com/results?search_query=%s"),
+            Tuple.Create("github", "GitHub", "https://github.com/search?q=%s"),
+            Tuple.Create("gh", "GitHub", "https://github.com/search?q=%s"),
+            Tuple.Create("google", "Google", "https://www.google.com/search?q=%s"),
+            Tuple.Create("wikipedia", "Wikipedia", "https://en.wikipedia.org/w/index.php?search=%s"),
+            Tuple.Create("wiki", "Wikipedia", "https://en.wikipedia.org/w/index.php?search=%s"),
+            Tuple.Create("reddit", "Reddit", "https://www.reddit.com/search/?q=%s"),
+            Tuple.Create("amazon", "Amazon", "https://www.amazon.com/s?k=%s"),
+            Tuple.Create("spotify", "Spotify", "https://open.spotify.com/search/%s"),
+            Tuple.Create("npm", "npm", "https://www.npmjs.com/search?q=%s"),
+            Tuple.Create("mdn", "MDN", "https://developer.mozilla.org/en-US/search?q=%s"),
+            Tuple.Create("maps", "Google Maps", "https://www.google.com/maps/search/%s")
+        };
 
         private bool TryRunAddressBarCommand(string q)
         {
@@ -5850,12 +6115,60 @@ namespace SearchBrowser
             string cmd = q.Trim().ToLowerInvariant();
             if (cmd == "settings" || cmd == "preferences") { HideOmnibox(); OpenOrSelectSettingsTab("general"); return true; }
             if (cmd == "new tab") { HideOmnibox(); CreateAndSelectTab("about:blank", false); return true; }
+            if (cmd == "new private tab" || cmd == "private") { HideOmnibox(); CreateAndSelectTab("about:blank", false, true); return true; }
             if (cmd == "history") { HideOmnibox(); OpenOrSelectHistoryTab(); return true; }
             if (cmd == "downloads") { HideOmnibox(); ShowDownloadsDrawer(); return true; }
             if (cmd == "bookmarks") { HideOmnibox(); ShowBookmarksDrawer(); return true; }
             if (cmd == "passwords") { HideOmnibox(); OpenOrSelectSettingsTab("passwords"); return true; }
             if (cmd == "extensions") { HideOmnibox(); OpenOrSelectSettingsTab("extensions"); return true; }
+            if (cmd == "reading mode" || cmd == "reader") { HideOmnibox(); var _ = ToggleReadingModeAsync(); return true; }
+            if (cmd == "hide elements" || cmd == "curtain") { HideOmnibox(); var _ = ToggleVeilPickingAsync(); return true; }
+            if (cmd == "split view" || cmd == "split") { HideOmnibox(); ToggleSplitView(); return true; }
+            if (cmd == "dark mode" || cmd == "light mode")
+            {
+                HideOmnibox();
+                Store.Prefs.Appearance = Palette.IsDark ? "Light" : "Dark";
+                Store.SavePrefs();
+                ApplyLayoutPreferences(true);
+                return true;
+            }
             return false;
+        }
+
+        private void AddMatchingCommandsToOmnibox(string q)
+        {
+            if (!Store.Prefs.AddressBarCommands || string.IsNullOrWhiteSpace(q) || q.Length < 2) return;
+            string low = q.Trim().ToLowerInvariant();
+            var cmds = new[]
+            {
+                Tuple.Create("Settings", "Ctrl+,", (Action)(() => { HideOmnibox(); OpenOrSelectSettingsTab("general"); })),
+                Tuple.Create("History", "Ctrl+H", (Action)(() => { HideOmnibox(); OpenOrSelectHistoryTab(); })),
+                Tuple.Create("Downloads", "Ctrl+J", (Action)(() => { HideOmnibox(); ShowDownloadsDrawer(); })),
+                Tuple.Create("Bookmarks", "Ctrl+Shift+B", (Action)(() => { HideOmnibox(); ShowBookmarksDrawer(); })),
+                Tuple.Create("Passwords", "", (Action)(() => { HideOmnibox(); OpenOrSelectSettingsTab("passwords"); })),
+                Tuple.Create("Extensions", "", (Action)(() => { HideOmnibox(); OpenOrSelectSettingsTab("extensions"); })),
+                Tuple.Create("New Private Tab", "Ctrl+Shift+N", (Action)(() => { HideOmnibox(); CreateAndSelectTab("about:blank", false, true); })),
+                Tuple.Create("Reading Mode", "Ctrl+Shift+R", (Action)(() => { HideOmnibox(); var _ = ToggleReadingModeAsync(); })),
+                Tuple.Create("Hide Elements", "Ctrl+Shift+H", (Action)(() => { HideOmnibox(); var _ = ToggleVeilPickingAsync(); })),
+                Tuple.Create("Split View", "", (Action)(() => { HideOmnibox(); ToggleSplitView(); })),
+                Tuple.Create(Palette.IsDark ? "Switch to Light Mode" : "Switch to Dark Mode", "", (Action)(() =>
+                {
+                    HideOmnibox();
+                    Store.Prefs.Appearance = Palette.IsDark ? "Light" : "Dark";
+                    Store.SavePrefs();
+                    ApplyLayoutPreferences(true);
+                }))
+            };
+            int added = 0;
+            foreach (var c in cmds)
+            {
+                if (c.Item1.ToLowerInvariant().Contains(low))
+                {
+                    AddOmniboxOfferRow("⌘  " + c.Item1, c.Item2, c.Item3);
+                    added++;
+                    if (added >= 3) break;
+                }
+            }
         }
 
         private void RefreshOmniboxOffers()
@@ -5863,9 +6176,29 @@ namespace SearchBrowser
             _omniboxOffersStack.Children.Clear();
             _currentOfferActions.Clear();
             _selectedOfferIndex = -1;
+            _pendingSiteSearchName = null;
+            _pendingSiteSearchTemplate = null;
 
             string q = (_omniboxInput.Text ?? "").Trim();
             bool openInNew = _omniboxIsNewTabMode;
+
+            // Active Site Search chip mode (e.g. [YouTube] cats)
+            if (!string.IsNullOrEmpty(_activeSiteSearchTemplate))
+            {
+                if (!string.IsNullOrEmpty(q))
+                {
+                    string dest = Address.FormatSearch(_activeSiteSearchTemplate, q);
+                    AddOmniboxOfferRow("⌕  Search " + _activeSiteSearchName + " for \"" + q + "\"", "Enter", () =>
+                    {
+                        HideOmnibox();
+                        if (openInNew) CreateAndSelectTab(dest, false);
+                        else if (_activeTab != null) _activeTab.Navigate(dest);
+                    });
+                }
+                _omniboxOffersBorder.Visibility = _currentOfferActions.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+                if (_currentOfferActions.Count > 0) { _selectedOfferIndex = 0; HighlightSelectedOffer(); }
+                return;
+            }
 
             if (_omniboxIsTabSwitcherMode)
             {
@@ -5896,6 +6229,27 @@ namespace SearchBrowser
             {
                 if (!string.IsNullOrEmpty(q))
                 {
+                    // Check Site Search Tab offer (SiteSearch.swift)
+                    if (!q.Contains(" "))
+                    {
+                        string lowQ = q.ToLowerInvariant();
+                        foreach (var ss in BuiltInSiteSearches)
+                        {
+                            if (ss.Item1.StartsWith(lowQ, StringComparison.OrdinalIgnoreCase) && lowQ.Length >= 2)
+                            {
+                                _pendingSiteSearchName = ss.Item2;
+                                _pendingSiteSearchTemplate = ss.Item3;
+                                string capName = ss.Item2;
+                                string capTpl = ss.Item3;
+                                AddOmniboxOfferRow("⌕  Search " + capName, "Press Tab", () =>
+                                {
+                                    LockSiteSearchChip(capName, capTpl);
+                                });
+                                break;
+                            }
+                        }
+                    }
+
                     string parsedUrl = Address.TryParseUrl(q);
                     if (parsedUrl != null)
                     {
@@ -5915,6 +6269,8 @@ namespace SearchBrowser
                             else if (_activeTab != null) _activeTab.Navigate(q);
                         });
                     }
+
+                    AddMatchingCommandsToOmnibox(q);
 
                     foreach (var tab in _allTabs.Where(t =>
                         t.DisplayTitle.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -5985,9 +6341,23 @@ namespace SearchBrowser
             _omniboxOffersBorder.Visibility = _currentOfferActions.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             if (_currentOfferActions.Count > 0)
             {
-                _selectedOfferIndex = 0;
+                _selectedOfferIndex = (_pendingSiteSearchName != null && _currentOfferActions.Count > 1) ? 1 : 0;
                 HighlightSelectedOffer();
             }
+        }
+
+        private void LockSiteSearchChip(string name, string template)
+        {
+            _activeSiteSearchName = name;
+            _activeSiteSearchTemplate = template;
+            _pendingSiteSearchName = null;
+            _pendingSiteSearchTemplate = null;
+            _siteChipText.Text = name;
+            _siteChipBorder.Visibility = Visibility.Visible;
+            _omniboxInput.Text = "";
+            UpdateOmniboxPlaceholder();
+            RefreshOmniboxOffers();
+            _omniboxInput.Focus();
         }
 
         private void AddOmniboxOfferRow(string title, string subtitle, Action onPick)
@@ -6053,7 +6423,31 @@ namespace SearchBrowser
         {
             if (e.Key == Key.Escape)
             {
+                if (!string.IsNullOrEmpty(_activeSiteSearchName))
+                {
+                    _activeSiteSearchName = null;
+                    _activeSiteSearchTemplate = null;
+                    _siteChipBorder.Visibility = Visibility.Collapsed;
+                    UpdateOmniboxPlaceholder();
+                    RefreshOmniboxOffers();
+                    e.Handled = true;
+                    return;
+                }
                 HideOmnibox();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Tab && !string.IsNullOrEmpty(_pendingSiteSearchName) && !string.IsNullOrEmpty(_pendingSiteSearchTemplate))
+            {
+                LockSiteSearchChip(_pendingSiteSearchName, _pendingSiteSearchTemplate);
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Back && string.IsNullOrEmpty(_omniboxInput.Text) && !string.IsNullOrEmpty(_activeSiteSearchName))
+            {
+                _activeSiteSearchName = null;
+                _activeSiteSearchTemplate = null;
+                _siteChipBorder.Visibility = Visibility.Collapsed;
+                UpdateOmniboxPlaceholder();
+                RefreshOmniboxOffers();
                 e.Handled = true;
             }
             else if (e.Key == Key.Down)

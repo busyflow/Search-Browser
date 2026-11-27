@@ -205,12 +205,14 @@ namespace SearchBrowser
         [DataMember] public bool CapturePagesEnabled { get; set; }
 
         [DataMember] public bool SpacesEnabled { get; set; }
+        [DataMember] public bool ShowSpaceButtons { get; set; }
         [DataMember] public bool CtrlNumbersSwitchSpaces { get; set; }
         [DataMember] public bool PinsKeepSite { get; set; }
         [DataMember] public bool PinnedRows { get; set; }
         [DataMember] public bool CtrlClickPinOpensNewTab { get; set; }
         [DataMember] public bool NewTabInFloatingField { get; set; }
         [DataMember] public bool FieldInMiddleOfWindow { get; set; }
+        [DataMember] public bool FieldHidesPage { get; set; }
         [DataMember] public bool AddressBarCommands { get; set; }
         [DataMember] public bool StartWithFreshWindow { get; set; }
 
@@ -347,6 +349,11 @@ namespace SearchBrowser
                 ShowAddressOnActiveTab = true;
                 ClickActiveTabEditsAddress = true;
                 PrefsMigrationVersion = 6;
+            }
+            if (PrefsMigrationVersion < 7)
+            {
+                AddressBarCommands = true;
+                PrefsMigrationVersion = 7;
             }
             if (string.IsNullOrEmpty(WindowButtonsStyle)) WindowButtonsStyle = "TrafficLights";
             if (string.IsNullOrEmpty(TopBarClearance)) TopBarClearance = "Notch";
