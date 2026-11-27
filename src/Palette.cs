@@ -46,6 +46,14 @@ namespace SearchBrowser
         public static SolidColorBrush CloseHoverBg { get; private set; }
         public static SolidColorBrush CloseHoverFg { get; private set; }
         public static SolidColorBrush UnreadRed { get; private set; }
+        public static SolidColorBrush RestingLight { get; private set; }
+        public static SolidColorBrush TrafficClose { get; private set; }
+        public static SolidColorBrush TrafficMin { get; private set; }
+        public static SolidColorBrush TrafficMax { get; private set; }
+        public static SolidColorBrush TrafficCloseEdge { get; private set; }
+        public static SolidColorBrush TrafficMinEdge { get; private set; }
+        public static SolidColorBrush TrafficMaxEdge { get; private set; }
+        public static SolidColorBrush TrafficGlyph { get; private set; }
 
         public static void ResolveTheme()
         {
@@ -58,6 +66,16 @@ namespace SearchBrowser
                 IsDark = IsWindowsInDarkMode();
 
             UnreadRed = Freeze(Color.FromRgb(237, 61, 54)); // #ED3D36
+            TrafficClose = Freeze(Color.FromRgb(255, 95, 87));      // #FF5F57
+            TrafficMin = Freeze(Color.FromRgb(254, 188, 46));       // #FEBC2E
+            TrafficMax = Freeze(Color.FromRgb(40, 200, 64));        // #28C840
+            TrafficCloseEdge = Freeze(Color.FromArgb(40, 0, 0, 0));
+            TrafficMinEdge = Freeze(Color.FromArgb(40, 0, 0, 0));
+            TrafficMaxEdge = Freeze(Color.FromArgb(40, 0, 0, 0));
+            TrafficGlyph = Freeze(Color.FromArgb(168, 0, 0, 0));
+            RestingLight = IsDark
+                ? Freeze(Color.FromRgb(77, 77, 77))                 // Design.swift NS.resting dark 0.30
+                : Freeze(Color.FromRgb(204, 204, 204));             // Design.swift NS.resting light 0.80
 
             if (IsDark)
             {

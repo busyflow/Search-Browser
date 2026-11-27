@@ -205,30 +205,6 @@ namespace SearchBrowser
     display: grid; place-items: center; font-size: 9px; font-weight: 500; flex: none;
   }
   .home-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* Bottom-right Settings gear door (Blank.tsx SettingsDoor: 26x26, radius 8, 14px from corner) */
-  .blank-door {
-    position: fixed;
-    right: 14px;
-    bottom: 14px;
-    width: 26px;
-    height: 26px;
-    border-radius: 8px;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    display: grid;
-    place-items: center;
-    cursor: pointer;
-    transition: background-color 140ms cubic-bezier(0,0,0.58,1), color 140ms cubic-bezier(0,0,0.58,1);
-  }
-  .blank-door.themed {
-    background: var(--ground);
-    box-shadow: inset 0 0 0 1px var(--hairline);
-  }
-  .blank-door:hover {
-    background: var(--hover);
-    color: rgba(var(--ink-rgb), 0.70);
-  }
 </style>
 </head>
 <body>
@@ -243,13 +219,6 @@ namespace SearchBrowser
       " + homeGridHtml.ToString() + @"
     </div>
   </div>
-
-  <button class='blank-door " + (isThemed ? "themed" : "") + @"' style='z-index:2' title='Settings (Ctrl+,)' onclick=""send({type:'openSettings'})"">
-    <svg width='12.1' height='12.1' viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'>
-      <path d='M6.81 3.56L7.02 1.56L8.98 1.56L9.19 3.56A4.6 4.6 0 0 1 11.4 4.84L13.24 4.02L14.22 5.72L12.59 6.91A4.6 4.6 0 0 1 12.59 9.09L14.22 10.28L13.24 11.98L11.4 11.16A4.6 4.6 0 0 1 9.19 12.44L8.98 14.44L7.02 14.44L6.81 12.44A4.6 4.6 0 0 1 4.6 11.16L2.76 11.98L1.78 10.28L3.41 9.09A4.6 4.6 0 0 1 3.41 6.91L1.78 5.72L2.76 4.02L4.6 4.84A4.6 4.6 0 0 1 6.81 3.56Z'/>
-      <circle cx='8' cy='8' r='1.9'/>
-    </svg>
-  </button>
 
   <script>" + HomeThemesJs.RendererScript + @"
     (function() {
@@ -1223,10 +1192,14 @@ namespace SearchBrowser
           <div class='sr'>
             <div class='sr-main'>
               <div class='sr-tile'><svg viewBox='0 0 16 16'><rect x='2.2' y='3' width='11.6' height='10' rx='2'/></svg></div>
-              <div class='sr-words'><div class='sr-title'>Window buttons</div><div class='sr-detail'>Inline, as doors beside the tabs, or Classic, in the corner as in Windows</div></div>
+              <div class='sr-words'><div class='sr-title'>Window buttons</div><div class='sr-detail'>macOS traffic lights on the left, or Windows buttons on the top-right</div></div>
             </div>
             <div class='sr-wide'>
               <div class='st-pics'>
+                <div class='st-pic " + (p.WindowButtonsStyle == "TrafficLights" ? "on" : "") + @"' onclick=""setPref('WindowButtonsStyle','TrafficLights')"">
+                  <div class='st-pic-ring'><span class='st-pic-frame'><span style='position:absolute;left:6px;top:6px;display:flex;gap:2.5px'><span style='width:5px;height:5px;border-radius:50%;background:#FF5F57'></span><span style='width:5px;height:5px;border-radius:50%;background:#FEBC2E'></span><span style='width:5px;height:5px;border-radius:50%;background:#28C840'></span></span><span style='position:absolute;left:18px;top:14px;right:4px;bottom:4px;background:var(--ground);border-radius:4px;border:1px solid var(--hairline)'></span></span></div>
+                  <span class='st-pic-label'>Traffic lights</span>
+                </div>
                 <div class='st-pic " + (p.WindowButtonsStyle == "Inline" ? "on" : "") + @"' onclick=""setPref('WindowButtonsStyle','Inline')"">
                   <div class='st-pic-ring'><span class='st-pic-frame'><span style='position:absolute;right:6px;top:6px;display:flex;gap:3px'><span style='width:5px;height:5px;border-radius:1.5px;background:var(--faint)'></span><span style='width:5px;height:5px;border-radius:1.5px;background:var(--faint)'></span><span style='width:5px;height:5px;border-radius:1.5px;background:var(--faint)'></span></span><span style='position:absolute;left:18px;top:14px;right:4px;bottom:4px;background:var(--ground);border-radius:4px;border:1px solid var(--hairline)'></span></span></div>
                   <span class='st-pic-label'>Inline</span>
@@ -1238,6 +1211,12 @@ namespace SearchBrowser
               </div>
             </div>
           </div>
+          <div class='st-rule'></div>
+          <div class='sr'><div class='sr-main'>
+            <div class='sr-tile'><svg viewBox='0 0 16 16'><rect x='2.2' y='3' width='11.6' height='10' rx='2'/><path d='M2.2 6h11.6'/></svg></div>
+            <div class='sr-words'><div class='sr-title'>Top bar clearance " + Info("Height of the quiet strip above the page") + @"</div><div class='sr-detail'>Notch (36px) keeps Windhawk Dynamic Island clear of website search bars</div></div>
+            <div class='sr-control'>" + Seg("TopBarClearance", p.TopBarClearance, "Notch", "Compact", "Standard") + @"</div>
+          </div></div>
         </div>
       </div>
     </div>
@@ -1996,7 +1975,7 @@ namespace SearchBrowser
           <div class='sr'>
             <div class='sr-main'>
               <div class='sr-words'>
-                <div class='sr-title'>Search for Windows — v0.0018</div>
+                <div class='sr-title'>Search for Windows — v0.0019</div>
                 <div class='sr-detail'>Native Windows x64 + WebView2 port of driceroland/Search with Oriel UI design tokens. Lightweight ~290 KB executable, zero bundled Chromium or Electron overhead.</div>
               </div>
               <div class='sr-control'>

@@ -123,6 +123,14 @@ namespace SearchBrowser
         private Border _minBtn;
         private Border _maxBtn;
         private Border _closeBtn;
+        private StackPanel _trafficLightsPanel;
+        private Border _tlClose;
+        private Border _tlMin;
+        private Border _tlMax;
+        private UIElement _tlCloseGlyph;
+        private UIElement _tlMinGlyph;
+        private UIElement _tlMaxGlyph;
+        private bool _tlHovered;
         private Border _bookmarksBar;
         private StackPanel _bookmarksBarStack;
         private Border _alwaysAddressBar;
@@ -133,6 +141,8 @@ namespace SearchBrowser
         private Border _bmFooterBtn;
         private Border _extFooterBtn;
         private Border _dlFooterBtn;
+        private Border _settingsFooterBtn;
+        private Border _sidebarGripPill;
         private Border _mediaPlayerCard;
         private Border _spaceToast;
         private TextBlock _spaceToastText;
@@ -235,6 +245,8 @@ namespace SearchBrowser
             Loaded += OnWindowLoaded;
             Closing += OnWindowClosing;
             StateChanged += OnWindowStateChanged;
+            Activated += (s, e) => UpdateTrafficLightsVisual();
+            Deactivated += (s, e) => UpdateTrafficLightsVisual();
             PreviewKeyDown += OnWindowPreviewKeyDown;
             PreviewKeyUp += OnWindowPreviewKeyUp;
             System.Windows.Interop.ComponentDispatcher.ThreadPreprocessMessage += OnThreadPreprocessMessage;
@@ -264,13 +276,13 @@ namespace SearchBrowser
             Background = Palette.Frame;
 
             _rootGrid = new Grid();
-            _rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(52) }); // Full-width 52px top band (matching Oriel Screenshot 1)
+            _rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(GetTopBarHeight()) }); // Dynamic quiet top strip (36px Notch default clears Windhawk Dynamic Island)
             _rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
             _rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             _rootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            // 1. FULL-WIDTH TOP BAND (52px high: Back, Forward, Reload on far left; Center tabs when in Top mode; Bookmark ribbon + Minimize, Maximize, Close on far right)
+            // 1. QUIET TOP FRAME STRIP (macOS Traffic Lights + < > ↻ on left; calm empty notch space in center; optional Windows buttons on right)
             _topTabBarBorder = new Border
             {
                 Background = Palette.Frame,
@@ -281,12 +293,39 @@ namespace SearchBrowser
             topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             topBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            // Top-left helm: [Sidebar] <  >  ↻  (+ optional top doors when ButtonsAtTop is on)
+            // Top-left helm: [● ● ●] [Sidebar] <  >  ↻  (+ optional top doors when ButtonsAtTop is on)
             var helmStack = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 VerticalAlignment = VerticalAlignment.Center
             };
+
+            // Authentic macOS Traffic Lights (12x12 circles, 8px gap, resting grey when unfocused, glyphs on hover)
+            _trafficLightsPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 0, 14, 0),
+                Background = Brushes.Transparent
+            };
+            WindowChrome.SetIsHitTestVisibleInChrome(_trafficLightsPanel, true);
+            _tlCloseGlyph = VectorIcons.Draw("M 4.5,4.5 L 11.5,11.5 M 11.5,4.5 L 4.5,11.5", Palette.TrafficGlyph, 7, 1.85);
+            _tlMinGlyph = VectorIcons.Draw("M 3.8,8 L 12.2,8", Palette.TrafficGlyph, 7, 1.85);
+            _tlMaxGlyph = VectorIcons.Draw("M 4.5,11.5 L 11.5,4.5 M 7.2,4.5 L 11.5,4.5 L 11.5,8.8 M 8.8,11.5 L 4.5,11.5 L 4.5,7.2", Palette.TrafficGlyph, 7, 1.65);
+            _tlCloseGlyph.Visibility = Visibility.Collapsed;
+            _tlMinGlyph.Visibility = Visibility.Collapsed;
+            _tlMaxGlyph.Visibility = Visibility.Collapsed;
+            _tlClose = CreateTrafficLightDot("Close", _tlCloseGlyph, () => Close());
+            _tlMin = CreateTrafficLightDot("Minimize", _tlMinGlyph, () => WindowState = WindowState.Minimized);
+            _tlMax = CreateTrafficLightDot("Maximize / Restore", _tlMaxGlyph, () =>
+                WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized);
+            _tlMin.Margin = new Thickness(8, 0, 8, 0);
+            _trafficLightsPanel.Children.Add(_tlClose);
+            _trafficLightsPanel.Children.Add(_tlMin);
+            _trafficLightsPanel.Children.Add(_tlMax);
+            _trafficLightsPanel.MouseEnter += (s, e) => { _tlHovered = true; UpdateTrafficLightsVisual(); };
+            _trafficLightsPanel.MouseLeave += (s, e) => { _tlHovered = false; UpdateTrafficLightsVisual(); };
+
             _sidebarFoldBtn = CreateVectorIconButton(VectorIcons.SidebarPath, "Hide Sidebar (Ctrl+S)", () => ToggleSidebarFold());
             _backBtn = CreateVectorIconButton(VectorIcons.BackPath, "Back (Alt+Left / Ctrl+[)", () =>
             {
@@ -309,6 +348,7 @@ namespace SearchBrowser
             });
             _topExtDoor = CreateVectorIconButton(VectorIcons.ExtensionPath, "Extensions", () => ShowExtensionsDrawer());
             _topDlDoor = CreateVectorIconButton(VectorIcons.DownloadsPath, "Downloads (Ctrl+J)", () => ShowDownloadsDrawer());
+            helmStack.Children.Add(_trafficLightsPanel);
             helmStack.Children.Add(_sidebarFoldBtn);
             helmStack.Children.Add(_backBtn);
             helmStack.Children.Add(_forwardBtn);
@@ -471,13 +511,16 @@ namespace SearchBrowser
             _spaceToast.Child = _spaceToastText;
             footerStack.Children.Add(_spaceToast);
 
+            // Official driceroland/Search SideFoot (Side.swift:2018): [SpaceDot] [Extensions] [Bookmarks] [Downloads] grouped left, quiet Settings sliders on right
             var footerRow = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
+            var leftFooterDoors = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             _spaceFooterBtn = new Border
             {
                 Width = 26,
                 Height = 26,
                 CornerRadius = new CornerRadius(8),
                 Background = Brushes.Transparent,
+                Margin = new Thickness(0, 0, 2, 0),
                 Cursor = Cursors.Hand,
                 ToolTip = "Spaces (Alt+1..9)",
                 Child = VectorIcons.Draw(VectorIcons.HomePath, Palette.FrameMuted, 13, 1.5)
@@ -485,18 +528,28 @@ namespace SearchBrowser
             _spaceFooterBtn.MouseEnter += (s, e) => _spaceFooterBtn.Background = Palette.FrameHover;
             _spaceFooterBtn.MouseLeave += (s, e) => _spaceFooterBtn.Background = Brushes.Transparent;
             _spaceFooterBtn.MouseLeftButtonUp += (s, e) => ShowSpacesMenu(_spaceFooterBtn);
-            DockPanel.SetDock(_spaceFooterBtn, Dock.Left);
-            footerRow.Children.Add(_spaceFooterBtn);
 
-            var rightFooterDoors = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            _bmFooterBtn = CreateVectorIconButton(VectorIcons.BookmarkPath, "Bookmarks (Ctrl+Shift+B)", () => ShowBookmarksPopover(_bmFooterBtn));
             _extFooterBtn = CreateVectorIconButton(VectorIcons.ExtensionPath, "Extensions", () => ShowExtensionsDrawer());
+            _extFooterBtn.Margin = new Thickness(0, 0, 2, 0);
+            _bmFooterBtn = CreateVectorIconButton(VectorIcons.BookmarkPath, "Bookmarks (Ctrl+Shift+B)", () => ShowBookmarksPopover(_bmFooterBtn));
+            _bmFooterBtn.Margin = new Thickness(0, 0, 2, 0);
             _dlFooterBtn = CreateVectorIconButton(VectorIcons.DownloadsPath, "Downloads (Ctrl+J)", () => ShowDownloadsDrawer());
-            rightFooterDoors.Children.Add(_bmFooterBtn);
-            rightFooterDoors.Children.Add(_extFooterBtn);
-            rightFooterDoors.Children.Add(_dlFooterBtn);
-            DockPanel.SetDock(rightFooterDoors, Dock.Right);
-            footerRow.Children.Add(rightFooterDoors);
+            _dlFooterBtn.Margin = new Thickness(0, 0, 2, 0);
+
+            leftFooterDoors.Children.Add(_spaceFooterBtn);
+            leftFooterDoors.Children.Add(_extFooterBtn);
+            leftFooterDoors.Children.Add(_bmFooterBtn);
+            leftFooterDoors.Children.Add(_dlFooterBtn);
+            DockPanel.SetDock(leftFooterDoors, Dock.Left);
+            footerRow.Children.Add(leftFooterDoors);
+
+            _settingsFooterBtn = CreateVectorIconButton(VectorIcons.SlidersPath, "Settings (Ctrl+,)", () => OpenOrSelectSettingsTab());
+            _settingsFooterBtn.Margin = new Thickness(0);
+            _settingsFooterBtn.Opacity = 0.72;
+            _settingsFooterBtn.MouseEnter += (s, e) => _settingsFooterBtn.Opacity = 1.0;
+            _settingsFooterBtn.MouseLeave += (s, e) => _settingsFooterBtn.Opacity = 0.72;
+            DockPanel.SetDock(_settingsFooterBtn, Dock.Right);
+            footerRow.Children.Add(_settingsFooterBtn);
             footerRow.Children.Add(new Grid());
             footerStack.Children.Add(footerRow);
 
@@ -541,14 +594,44 @@ namespace SearchBrowser
             sidebarContentBorder.Child = sidebarDock;
             sidebarOuterGrid.Children.Add(sidebarContentBorder);
 
-            // Sidebar edge resize grip (Oriel: 176..440px, double-click resets to 232px, <200px NarrowToIcons)
+            // Official driceroland/Search EdgeGrip (Design.swift:264): 4px capsule growing 28->40px on hover/drag
+            _sidebarGripPill = new Border
+            {
+                Width = 4,
+                Height = 28,
+                CornerRadius = new CornerRadius(2),
+                Background = Palette.Faint,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Opacity = 0,
+                IsHitTestVisible = false
+            };
             _sidebarResizeGrip = new Border
             {
-                Width = 5,
+                Width = 8,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Stretch,
                 Background = Brushes.Transparent,
-                Cursor = Cursors.SizeWE
+                Cursor = Cursors.SizeWE,
+                Child = _sidebarGripPill
+            };
+            _sidebarResizeGrip.MouseEnter += (s, e) =>
+            {
+                if (_sidebarGripPill != null)
+                {
+                    _sidebarGripPill.Background = Palette.Muted;
+                    _sidebarGripPill.Height = 40;
+                    _sidebarGripPill.Opacity = 0.85;
+                }
+            };
+            _sidebarResizeGrip.MouseLeave += (s, e) =>
+            {
+                if (_sidebarGripPill != null && !_isResizingSidebar)
+                {
+                    _sidebarGripPill.Background = Palette.Faint;
+                    _sidebarGripPill.Height = 28;
+                    _sidebarGripPill.Opacity = 0;
+                }
             };
             _sidebarResizeGrip.MouseLeftButtonDown += OnSidebarResizeDown;
             _sidebarResizeGrip.MouseMove += OnSidebarResizeMove;
@@ -1785,7 +1868,7 @@ namespace SearchBrowser
                 _isFullScreen = false;
                 WindowStyle = WindowStyle.SingleBorderWindow;
                 _topTabBarBorder.Visibility = Visibility.Visible;
-                _rootGrid.RowDefinitions[0].Height = new GridLength(52);
+                _rootGrid.RowDefinitions[0].Height = new GridLength(GetTopBarHeight());
                 if (!_preFullScreenBounds.IsEmpty)
                 {
                     Left = _preFullScreenBounds.Left;
@@ -1933,6 +2016,12 @@ namespace SearchBrowser
             if (!_isResizingSidebar) return;
             _isResizingSidebar = false;
             _sidebarResizeGrip.ReleaseMouseCapture();
+            if (_sidebarGripPill != null && !_sidebarResizeGrip.IsMouseOver)
+            {
+                _sidebarGripPill.Background = Palette.Faint;
+                _sidebarGripPill.Height = 28;
+                _sidebarGripPill.Opacity = 0;
+            }
             Store.SavePrefs();
             ApplyLayoutPreferences();
             e.Handled = true;
@@ -3068,7 +3157,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0018";
+            const string currentVersion = "0.0019";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -3788,20 +3877,77 @@ namespace SearchBrowser
             _mediaPlayerCard.Visibility = Visibility.Visible;
         }
 
+        private double GetTopBarHeight()
+        {
+            if (_isFullScreen) return 0;
+            if (Store.Prefs != null && string.Equals(Store.Prefs.TabLayout, "Top", StringComparison.OrdinalIgnoreCase))
+                return 48;
+            string mode = Store.Prefs != null ? (Store.Prefs.TopBarClearance ?? "Notch") : "Notch";
+            if (string.Equals(mode, "Compact", StringComparison.OrdinalIgnoreCase)) return 28;
+            if (string.Equals(mode, "Standard", StringComparison.OrdinalIgnoreCase)) return 48;
+            return 36; // Notch / Dynamic Island default
+        }
+
+        private Border CreateTrafficLightDot(string tooltip, UIElement glyph, Action onClick)
+        {
+            var dot = new Border
+            {
+                Width = 12,
+                Height = 12,
+                CornerRadius = new CornerRadius(6),
+                BorderThickness = new Thickness(0.5),
+                Cursor = Cursors.Hand,
+                ToolTip = tooltip,
+                Child = glyph
+            };
+            WindowChrome.SetIsHitTestVisibleInChrome(dot, true);
+            dot.MouseLeftButtonDown += (s, e) => { e.Handled = true; };
+            dot.MouseLeftButtonUp += (s, e) =>
+            {
+                e.Handled = true;
+                onClick();
+            };
+            return dot;
+        }
+
+        private void UpdateTrafficLightsVisual()
+        {
+            if (_tlClose == null || _tlMin == null || _tlMax == null) return;
+            bool lit = IsActive || _tlHovered;
+            _tlClose.Background = lit ? Palette.TrafficClose : Palette.RestingLight;
+            _tlMin.Background = lit ? Palette.TrafficMin : Palette.RestingLight;
+            _tlMax.Background = lit ? Palette.TrafficMax : Palette.RestingLight;
+            _tlClose.BorderBrush = lit ? Palette.TrafficCloseEdge : Brushes.Transparent;
+            _tlMin.BorderBrush = lit ? Palette.TrafficMinEdge : Brushes.Transparent;
+            _tlMax.BorderBrush = lit ? Palette.TrafficMaxEdge : Brushes.Transparent;
+            Visibility gVis = _tlHovered ? Visibility.Visible : Visibility.Collapsed;
+            if (_tlCloseGlyph != null) _tlCloseGlyph.Visibility = gVis;
+            if (_tlMinGlyph != null) _tlMinGlyph.Visibility = gVis;
+            if (_tlMaxGlyph != null) _tlMaxGlyph.Visibility = gVis;
+        }
+
         private void ApplyCaptionButtonStyle()
         {
-            bool classic = string.Equals(Store.Prefs.WindowButtonsStyle, "Classic", StringComparison.OrdinalIgnoreCase);
+            string style = Store.Prefs != null ? (Store.Prefs.WindowButtonsStyle ?? "TrafficLights") : "TrafficLights";
+            bool traffic = string.Equals(style, "TrafficLights", StringComparison.OrdinalIgnoreCase);
+            bool classic = string.Equals(style, "Classic", StringComparison.OrdinalIgnoreCase);
+            if (_trafficLightsPanel != null)
+            {
+                _trafficLightsPanel.Visibility = traffic ? Visibility.Visible : Visibility.Collapsed;
+                UpdateTrafficLightsVisual();
+            }
             Border[] btns = new[] { _minBtn, _maxBtn, _closeBtn };
             foreach (var b in btns)
             {
                 if (b == null) continue;
+                b.Visibility = traffic ? Visibility.Collapsed : Visibility.Visible;
                 b.Width = classic ? 46 : 28;
-                b.Height = classic ? 40 : 28;
-                b.CornerRadius = new CornerRadius(classic ? 0 : 8);
+                b.Height = classic ? Math.Min(40, GetTopBarHeight()) : 26;
+                b.CornerRadius = new CornerRadius(classic ? 0 : 7);
                 b.Margin = classic ? new Thickness(0) : new Thickness(2, 0, 0, 0);
             }
             if (_topTabBarBorder != null)
-                _topTabBarBorder.Padding = classic ? new Thickness(10, 0, 0, 0) : new Thickness(10, 0, 10, 0);
+                _topTabBarBorder.Padding = (!traffic && classic) ? new Thickness(10, 0, 0, 0) : new Thickness(10, 0, 10, 0);
         }
 
         private void ApplyLayoutPreferences(bool reloadSettingsTabs = true)
@@ -3838,10 +3984,13 @@ namespace SearchBrowser
             bool isIconsOnly = string.Equals(Store.Prefs.TabLayout, "IconsOnly", StringComparison.OrdinalIgnoreCase);
 
             _topTabBarBorder.Visibility = _isFullScreen ? Visibility.Collapsed : Visibility.Visible;
+            if (_rootGrid != null && _rootGrid.RowDefinitions.Count > 0)
+                _rootGrid.RowDefinitions[0].Height = new GridLength(GetTopBarHeight());
             if (_sidebarFoldBtn != null) _sidebarFoldBtn.Visibility = Store.Prefs.ShowSidebarBtn ? Visibility.Visible : Visibility.Collapsed;
             if (_backBtn != null) _backBtn.Visibility = Store.Prefs.ShowBackBtn ? Visibility.Visible : Visibility.Collapsed;
             if (_forwardBtn != null) _forwardBtn.Visibility = Store.Prefs.ShowForwardBtn ? Visibility.Visible : Visibility.Collapsed;
             if (_reloadBtn != null) _reloadBtn.Visibility = Store.Prefs.ShowReloadBtn ? Visibility.Visible : Visibility.Collapsed;
+            if (_settingsFooterBtn != null) _settingsFooterBtn.Child = VectorIcons.Draw(VectorIcons.SlidersPath, Palette.FrameMuted, 11.5, 1.45);
             ApplyCaptionButtonStyle();
             UpdateFooterButtons();
             UpdateHelmButtons();

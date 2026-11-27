@@ -168,6 +168,7 @@ namespace SearchBrowser
         [DataMember] public bool HomeShuffle { get; set; }
         [DataMember] public string HomeImagePath { get; set; }
         [DataMember] public string WindowButtonsStyle { get; set; }
+        [DataMember] public string TopBarClearance { get; set; }
         [DataMember] public int PrefsMigrationVersion { get; set; }
 
         [DataMember] public string NewTabPosition { get; set; }
@@ -335,7 +336,14 @@ namespace SearchBrowser
                 TabsShowMode = "Icons";
                 PrefsMigrationVersion = 4;
             }
-            if (string.IsNullOrEmpty(WindowButtonsStyle)) WindowButtonsStyle = "Inline";
+            if (PrefsMigrationVersion < 5)
+            {
+                WindowButtonsStyle = "TrafficLights";
+                TopBarClearance = "Notch";
+                PrefsMigrationVersion = 5;
+            }
+            if (string.IsNullOrEmpty(WindowButtonsStyle)) WindowButtonsStyle = "TrafficLights";
+            if (string.IsNullOrEmpty(TopBarClearance)) TopBarClearance = "Notch";
             if (string.IsNullOrEmpty(NewTabPosition)) NewTabPosition = "After current";
             if (string.IsNullOrEmpty(SleepLevel)) SleepLevel = "Normal";
             if (string.IsNullOrEmpty(CloseIdleTabs)) CloseIdleTabs = "Never";

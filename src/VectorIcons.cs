@@ -31,6 +31,7 @@ namespace SearchBrowser
         public const string ChevronDownPath = "M 3.6,5.8 L 8,10.2 L 12.4,5.8";
         public const string CheckPath = "M 3.2,8.4 L 6.4,11.6 L 12.8,4.6";
         public const string MoreDotsPath = "M 4,8 A 0.9,0.9 0 1 1 2.2,8 A 0.9,0.9 0 1 1 4,8 M 8.9,8 A 0.9,0.9 0 1 1 7.1,8 A 0.9,0.9 0 1 1 8.9,8 M 13.8,8 A 0.9,0.9 0 1 1 12,8 A 0.9,0.9 0 1 1 13.8,8";
+        public const string SlidersPath = "M 2.5,4.2 L 13.5,4.2 M 2.5,8 L 13.5,8 M 2.5,11.8 L 13.5,11.8 M 5.5,2.7 L 5.5,5.7 M 10.5,6.5 L 10.5,9.5 M 6.8,10.3 L 6.8,13.3";
 
         // Oriel Inline Caption Buttons (Buttons.tsx:20-25, 16x16 viewBox, shown at 12x12, sw=1.45)
         public const string WinMinimizePath = "M 2.6,8 L 13.4,8";
