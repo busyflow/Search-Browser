@@ -59,6 +59,21 @@ namespace SearchBrowser
         }
 
         private CoreWebView2Environment _sharedEnv;
+        private Task<CoreWebView2Environment> _sharedEnvTask;
+        private Grid _nativeBlankStage;
+        private Border _blankBgBorder;
+        private Image _blankBgImage;
+        private Border _blankBgVeil;
+        private Border _blankBreathHalo;
+        private ScaleTransform _blankBreathScale;
+        private Border _blankFieldCard;
+        private TextBlock _blankPlaceholder;
+        private TextBox _blankInput;
+        private Border _blankOffersBorder;
+        private StackPanel _blankOffersStack;
+        private WrapPanel _blankHomeGrid;
+        private readonly List<Action> _blankOfferActions = new List<Action>();
+        private int _blankSelectedOffer = -1;
         private readonly List<BrowserTab> _allTabs = new List<BrowserTab>();
         private readonly List<BrowserTab> _mruTabs = new List<BrowserTab>();
         private readonly Stack<SavedTabState> _closedTabs = new Stack<SavedTabState>();
@@ -1114,7 +1129,9 @@ namespace SearchBrowser
                 });
             };
             _peekPopup.IsOpen = true;
-            await _peekTab.EnsureAwakeAsync(_sharedEnv, _peekWebHost);
+            var env = await EnsureSharedEnvAsync();
+            if (env == null) return;
+            await _peekTab.EnsureAwakeAsync(env, _peekWebHost);
             _peekWebHost.Child = _peekTab.WebView;
         }
 
@@ -1205,7 +1222,9 @@ namespace SearchBrowser
 
             _extPopupWebView = new WebView2();
             _extPopupHost.Child = _extPopupWebView;
-            await _extPopupWebView.EnsureCoreWebView2Async(_sharedEnv);
+            var env = await EnsureSharedEnvAsync();
+            if (env == null) return;
+            await _extPopupWebView.EnsureCoreWebView2Async(env);
 
             string rel = string.IsNullOrEmpty(ext.PopupRelativePath) ? "popup.html" : ext.PopupRelativePath.TrimStart('/');
             string runId = string.IsNullOrEmpty(ext.RuntimeExtensionId) ? ext.Id : ext.RuntimeExtensionId;
@@ -1259,7 +1278,9 @@ namespace SearchBrowser
             Point pt = e.GetPosition(_pageCardBorder);
             bool dropOnLeft = pt.X < (_pageCardBorder.ActualWidth / 2.0);
 
-            await dropped.EnsureAwakeAsync(_sharedEnv, dropOnLeft ? _leftPaneHost : _rightPaneHost);
+            var env = await EnsureSharedEnvAsync();
+            if (env == null) return;
+            await dropped.EnsureAwakeAsync(env, dropOnLeft ? _leftPaneHost : _rightPaneHost);
             _isSplitView = true;
             if (dropOnLeft)
             {
@@ -2383,6 +2404,432 @@ namespace SearchBrowser
             _sidebarBorder.Background = Palette.Frame;
         }
 
+        private Task<CoreWebView2Environment> EnsureSharedEnvAsync()
+        {
+            if (_sharedEnv != null) return Task.FromResult(_sharedEnv);
+            if (_sharedEnvTask != null) return _sharedEnvTask;
+            _sharedEnvTask = CreateSharedEnvCoreAsync();
+            return _sharedEnvTask;
+        }
+
+        private async Task<CoreWebView2Environment> CreateSharedEnvCoreAsync()
+        {
+            try
+            {
+                string browserArgs = BrowserTab.BuildLeanWebViewArgs(Store.Prefs != null && Store.Prefs.BlockWebRtcLeaks);
+                var options = new CoreWebView2EnvironmentOptions
+                {
+                    AdditionalBrowserArguments = browserArgs,
+                    AllowSingleSignOnUsingOSPrimaryAccount = false,
+                    AreBrowserExtensionsEnabled = (Store.Extensions != null && Store.Extensions.Count > 0)
+                };
+                _sharedEnv = await CoreWebView2Environment.CreateAsync(null, Store.WebViewDataDir, options);
+                return _sharedEnv;
+            }
+            catch (Exception ex)
+            {
+                _sharedEnvTask = null;
+                MessageBox.Show("WebView2 failed to initialize: " + ex.Message, "Search Browser", MessageBoxButton.OK, MessageBoxImage.Error);
+                return null;
+            }
+        }
+
+        private bool ShouldRenderNativeBlankTab(BrowserTab tab)
+        {
+            if (tab == null || _isSplitView) return false;
+            if (!string.Equals(tab.Url, "about:blank", StringComparison.OrdinalIgnoreCase)) return false;
+            string ht = Store.Prefs != null && !string.IsNullOrEmpty(Store.Prefs.HomeThemeId) ? Store.Prefs.HomeThemeId : "off";
+            return ht == "off" || ht == "solid" || ht == "gradient" || ht == "custom";
+        }
+
+        private void EnsureNativeBlankStageBuilt()
+        {
+            if (_nativeBlankStage != null) return;
+
+            _nativeBlankStage = new Grid { ClipToBounds = true };
+            _blankBgBorder = new Border { Background = Palette.Ground };
+            _nativeBlankStage.Children.Add(_blankBgBorder);
+
+            _blankBgImage = new Image
+            {
+                Stretch = Stretch.UniformToFill,
+                Visibility = Visibility.Collapsed,
+                IsHitTestVisible = false
+            };
+            _nativeBlankStage.Children.Add(_blankBgImage);
+
+            _blankBgVeil = new Border
+            {
+                Background = Palette.Ground,
+                Opacity = 0,
+                Visibility = Visibility.Collapsed,
+                IsHitTestVisible = false
+            };
+            _nativeBlankStage.Children.Add(_blankBgVeil);
+
+            var centerStack = new StackPanel
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(14, 0, 14, 60),
+                Width = 560,
+                MaxWidth = 560
+            };
+
+            var fieldHost = new Grid { Height = 50 };
+            _blankBreathScale = new ScaleTransform(1.0, 1.0);
+            _blankBreathHalo = new Border
+            {
+                CornerRadius = new CornerRadius(20),
+                Background = Palette.Ground,
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = _blankBreathScale,
+                IsHitTestVisible = false
+            };
+            fieldHost.Children.Add(_blankBreathHalo);
+
+            _blankFieldCard = new Border
+            {
+                Height = 50,
+                Background = Palette.Ground,
+                BorderBrush = Palette.Hairline,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(22, 0, 22, 0),
+                Effect = new DropShadowEffect { BlurRadius = 24, ShadowDepth = 6, Opacity = 0.08, Color = Colors.Black }
+            };
+
+            var inputGrid = new Grid { VerticalAlignment = VerticalAlignment.Center };
+            _blankPlaceholder = new TextBlock
+            {
+                Text = "Enter a web address",
+                FontSize = 15.5,
+                Foreground = Palette.FrameFaint,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            _blankInput = new TextBox
+            {
+                FontSize = 15.5,
+                Background = Brushes.Transparent,
+                Foreground = Palette.Ink,
+                CaretBrush = Palette.Ink,
+                BorderThickness = new Thickness(0),
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+            _blankInput.TextChanged += (s, e) =>
+            {
+                string txt = _blankInput.Text ?? "";
+                _blankPlaceholder.Visibility = string.IsNullOrEmpty(txt) ? Visibility.Visible : Visibility.Collapsed;
+                // Official PERF-NOTES.md warmBlank trick: start warming WebView2 on the VERY FIRST keystroke typed!
+                if (!string.IsNullOrEmpty(txt) && _sharedEnv == null && _sharedEnvTask == null)
+                {
+                    var _ = EnsureSharedEnvAsync();
+                }
+                RefreshBlankOffers();
+            };
+            _blankInput.PreviewKeyDown += OnBlankInputKeyDown;
+            inputGrid.Children.Add(_blankPlaceholder);
+            inputGrid.Children.Add(_blankInput);
+            _blankFieldCard.Child = inputGrid;
+            fieldHost.Children.Add(_blankFieldCard);
+            centerStack.Children.Add(fieldHost);
+
+            _blankOffersBorder = new Border
+            {
+                Background = Palette.Ground,
+                BorderBrush = Palette.Hairline,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(14),
+                Margin = new Thickness(0, 8, 0, 0),
+                Padding = new Thickness(6),
+                Visibility = Visibility.Collapsed,
+                Effect = new DropShadowEffect { BlurRadius = 20, ShadowDepth = 6, Opacity = 0.10, Color = Colors.Black }
+            };
+            _blankOffersStack = new StackPanel { Orientation = Orientation.Vertical };
+            _blankOffersBorder.Child = _blankOffersStack;
+            centerStack.Children.Add(_blankOffersBorder);
+
+            _blankHomeGrid = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 14, 0, 0),
+                Visibility = Visibility.Collapsed
+            };
+            centerStack.Children.Add(_blankHomeGrid);
+
+            _nativeBlankStage.Children.Add(centerStack);
+            _nativeBlankStage.MouseLeftButtonDown += (s, e) =>
+            {
+                if (e.OriginalSource == _nativeBlankStage || e.OriginalSource == _blankBgBorder)
+                {
+                    if (_blankInput != null) _blankInput.Focus();
+                }
+            };
+        }
+
+        private void RefreshNativeBlankStageVisuals(bool clearInput = false)
+        {
+            if (_nativeBlankStage == null) return;
+            string ht = Store.Prefs != null && !string.IsNullOrEmpty(Store.Prefs.HomeThemeId) ? Store.Prefs.HomeThemeId : "off";
+            string tuning = Store.Prefs != null ? (Store.Prefs.HomeTuningJson ?? "") : "";
+            double intensity = 1.0;
+            var im = Regex.Match(tuning, "\"intensity\"\\s*:\\s*([0-9\\.]+)");
+            if (im.Success) double.TryParse(im.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out intensity);
+            intensity = Math.Max(0.0, Math.Min(1.0, intensity));
+
+            _blankBgImage.Visibility = Visibility.Collapsed;
+            _blankBgVeil.Visibility = Visibility.Collapsed;
+            _blankBgBorder.Background = Palette.Ground;
+
+            bool isThemed = false;
+            if (ht == "solid")
+            {
+                string hex = ExtractJsonValue(tuning, "solid");
+                Color c = ParseHexColor(hex, Palette.Ground.Color);
+                _blankBgBorder.Background = new SolidColorBrush(BlendColor(Palette.Ground.Color, c, intensity));
+                isThemed = true;
+            }
+            else if (ht == "gradient")
+            {
+                string hexA = ExtractJsonValue(tuning, "gradientA");
+                string hexB = ExtractJsonValue(tuning, "gradientB");
+                Color ca = BlendColor(Palette.Ground.Color, ParseHexColor(hexA, Palette.Ground.Color), intensity);
+                Color cb = BlendColor(Palette.Ground.Color, ParseHexColor(hexB, Palette.Frame.Color), intensity);
+                double angle = 150.0;
+                var am = Regex.Match(tuning, "\"angle\"\\s*:\\s*([0-9\\.]+)");
+                if (am.Success) double.TryParse(am.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out angle);
+                _blankBgBorder.Background = new LinearGradientBrush(ca, cb, angle);
+                isThemed = true;
+            }
+            else if (ht == "custom")
+            {
+                string imgPath = Store.Prefs != null ? Store.Prefs.HomeImagePath : "";
+                if (!string.IsNullOrEmpty(imgPath) && File.Exists(imgPath))
+                {
+                    try
+                    {
+                        var bmp = new BitmapImage();
+                        bmp.BeginInit();
+                        bmp.CacheOption = BitmapCacheOption.OnLoad;
+                        bmp.UriSource = new Uri(imgPath, UriKind.Absolute);
+                        bmp.EndInit();
+                        bmp.Freeze();
+                        _blankBgImage.Source = bmp;
+                        _blankBgImage.Visibility = Visibility.Visible;
+                        _blankBgVeil.Background = Palette.Ground;
+                        _blankBgVeil.Opacity = Math.Max(0.0, 1.0 - intensity);
+                        _blankBgVeil.Visibility = _blankBgVeil.Opacity > 0.01 ? Visibility.Visible : Visibility.Collapsed;
+                        isThemed = true;
+                    }
+                    catch { }
+                }
+            }
+
+            _blankFieldCard.Background = Palette.Ground;
+            _blankFieldCard.BorderBrush = Palette.Hairline;
+            _blankInput.Foreground = Palette.Ink;
+            _blankInput.CaretBrush = Palette.Ink;
+            _blankPlaceholder.Foreground = Palette.FrameFaint;
+            _blankOffersBorder.Background = Palette.Ground;
+            _blankOffersBorder.BorderBrush = Palette.Hairline;
+
+            // Breath halo only when unthemed (official Omnibox.swift:155)
+            _blankBreathHalo.Background = Palette.Ground;
+            if (isThemed)
+            {
+                _blankBreathHalo.Visibility = Visibility.Collapsed;
+                _blankBreathScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                _blankBreathScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                _blankBreathHalo.BeginAnimation(UIElement.OpacityProperty, null);
+            }
+            else
+            {
+                _blankBreathHalo.Visibility = Visibility.Visible;
+                _blankBreathHalo.Effect = new DropShadowEffect
+                {
+                    Color = Palette.Ink.Color,
+                    BlurRadius = 46,
+                    ShadowDepth = 0,
+                    Opacity = Palette.IsDark ? 0.18 : 0.09
+                };
+                if (Store.Prefs != null && Store.Prefs.ReduceAnimations)
+                {
+                    _blankBreathScale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                    _blankBreathScale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                    _blankBreathHalo.BeginAnimation(UIElement.OpacityProperty, null);
+                    _blankBreathScale.ScaleX = 1.0;
+                    _blankBreathScale.ScaleY = 1.0;
+                    _blankBreathHalo.Opacity = 1.0;
+                }
+                else
+                {
+                    var ease = new System.Windows.Media.Animation.SineEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut };
+                    var sa = new System.Windows.Media.Animation.DoubleAnimation(0.97, 1.03, TimeSpan.FromSeconds(2.6)) { AutoReverse = true, RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever, EasingFunction = ease };
+                    var oa = new System.Windows.Media.Animation.DoubleAnimation(0.65, 1.0, TimeSpan.FromSeconds(2.6)) { AutoReverse = true, RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever, EasingFunction = ease };
+                    _blankBreathScale.BeginAnimation(ScaleTransform.ScaleXProperty, sa);
+                    _blankBreathScale.BeginAnimation(ScaleTransform.ScaleYProperty, sa);
+                    _blankBreathHalo.BeginAnimation(UIElement.OpacityProperty, oa);
+                }
+            }
+
+            // Optional Home Bookmarks Grid
+            _blankHomeGrid.Children.Clear();
+            if (Store.Prefs != null && Store.Prefs.ShowHomeBookmarksOnNewTab && Store.Bookmarks.Count > 0)
+            {
+                foreach (var bm in Store.Bookmarks.Take(8))
+                {
+                    string u = bm.Url;
+                    string letter = string.IsNullOrEmpty(bm.Title) ? "•" : bm.Title.Substring(0, 1).ToUpperInvariant();
+                    var tile = new Border
+                    {
+                        Width = 132,
+                        Height = 46,
+                        CornerRadius = new CornerRadius(12),
+                        Background = Palette.Ground,
+                        BorderBrush = Palette.Hairline,
+                        BorderThickness = new Thickness(1),
+                        Margin = new Thickness(0, 0, 8, 8),
+                        Padding = new Thickness(10, 0, 10, 0),
+                        Cursor = Cursors.Hand
+                    };
+                    var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                    sp.Children.Add(new Border
+                    {
+                        Width = 18, Height = 18, CornerRadius = new CornerRadius(5),
+                        Background = Palette.InkMarkBg, Margin = new Thickness(0, 0, 8, 0),
+                        Child = new TextBlock { Text = letter, FontSize = 10, Foreground = Palette.Ink, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                    });
+                    sp.Children.Add(new TextBlock { Text = bm.Title, FontSize = 12, Foreground = Palette.Muted, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 84, VerticalAlignment = VerticalAlignment.Center });
+                    tile.Child = sp;
+                    tile.MouseEnter += (s, e) => tile.Background = Palette.Hover;
+                    tile.MouseLeave += (s, e) => tile.Background = Palette.Ground;
+                    tile.MouseLeftButtonUp += (s, e) => { e.Handled = true; if (_activeTab != null) _activeTab.Navigate(u); };
+                    _blankHomeGrid.Children.Add(tile);
+                }
+                _blankHomeGrid.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                _blankHomeGrid.Visibility = Visibility.Collapsed;
+            }
+
+            if (clearInput && _blankInput != null)
+            {
+                _blankInput.Text = "";
+                _blankPlaceholder.Visibility = Visibility.Visible;
+                _blankOffersBorder.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void RefreshBlankOffers()
+        {
+            if (_blankOffersStack == null || _blankOffersBorder == null || _blankInput == null) return;
+            _blankOffersStack.Children.Clear();
+            _blankOfferActions.Clear();
+            _blankSelectedOffer = -1;
+
+            string q = (_blankInput.Text ?? "").Trim();
+            if (string.IsNullOrEmpty(q))
+            {
+                _blankOffersBorder.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            string parsed = Address.TryParseUrl(q);
+            if (parsed != null)
+            {
+                AddBlankOfferRow("→  Go to " + Address.Pretty(parsed), "Open Address", () => { if (_activeTab != null) _activeTab.Navigate(parsed); });
+            }
+            else
+            {
+                AddBlankOfferRow("⌕  Search " + Store.Prefs.SearchEngineName + " for \"" + q + "\"", "Web Search", () => { if (_activeTab != null) _activeTab.Navigate(q); });
+            }
+
+            foreach (var bm in Store.Bookmarks.Where(b => b.Title.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0 || b.Url.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0).Take(3))
+            {
+                string u = bm.Url;
+                AddBlankOfferRow("★  " + bm.Title, Address.DisplayHost(u), () => { if (_activeTab != null) _activeTab.Navigate(u); });
+            }
+            foreach (var h in Store.History.Where(x => x.Title.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0 || x.Url.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0).Take(4))
+            {
+                string u = h.Url;
+                AddBlankOfferRow("🕘  " + h.Title, Address.DisplayHost(u), () => { if (_activeTab != null) _activeTab.Navigate(u); });
+            }
+
+            _blankOffersBorder.Visibility = _blankOfferActions.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (_blankOfferActions.Count > 0)
+            {
+                _blankSelectedOffer = 0;
+                HighlightBlankOffer();
+            }
+        }
+
+        private void AddBlankOfferRow(string title, string sub, Action onPick)
+        {
+            var row = new Border
+            {
+                CornerRadius = new CornerRadius(9),
+                Padding = new Thickness(12, 8, 12, 8),
+                Background = Brushes.Transparent,
+                Cursor = Cursors.Hand
+            };
+            var dock = new DockPanel();
+            var subTxt = new TextBlock { Text = sub, FontSize = 11.5, Foreground = Palette.Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+            DockPanel.SetDock(subTxt, Dock.Right);
+            dock.Children.Add(subTxt);
+            dock.Children.Add(new TextBlock { Text = title, FontSize = 13.5, Foreground = Palette.Ink, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            row.Child = dock;
+
+            int idx = _blankOfferActions.Count;
+            _blankOfferActions.Add(onPick);
+            row.MouseEnter += (s, e) => { _blankSelectedOffer = idx; HighlightBlankOffer(); };
+            row.MouseLeftButtonDown += (s, e) => { e.Handled = true; onPick(); };
+            _blankOffersStack.Children.Add(row);
+        }
+
+        private void HighlightBlankOffer()
+        {
+            for (int i = 0; i < _blankOffersStack.Children.Count; i++)
+            {
+                var b = _blankOffersStack.Children[i] as Border;
+                if (b != null) b.Background = (i == _blankSelectedOffer) ? Palette.Wash : Brushes.Transparent;
+            }
+        }
+
+        private void OnBlankInputKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Down && _blankOfferActions.Count > 0)
+            {
+                _blankSelectedOffer = (_blankSelectedOffer + 1) % _blankOfferActions.Count;
+                HighlightBlankOffer();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Up && _blankOfferActions.Count > 0)
+            {
+                _blankSelectedOffer = (_blankSelectedOffer - 1 + _blankOfferActions.Count) % _blankOfferActions.Count;
+                HighlightBlankOffer();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                _blankInput.Text = "";
+                _blankOffersBorder.Visibility = Visibility.Collapsed;
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Enter)
+            {
+                string txt = (_blankInput.Text ?? "").Trim();
+                if (string.IsNullOrEmpty(txt)) { e.Handled = true; return; }
+                if (TryRunAddressBarCommand(txt)) { e.Handled = true; return; }
+                if (_blankSelectedOffer >= 0 && _blankSelectedOffer < _blankOfferActions.Count)
+                    _blankOfferActions[_blankSelectedOffer]();
+                else if (_activeTab != null)
+                    _activeTab.Navigate(txt);
+                e.Handled = true;
+            }
+        }
+
         private async void OnWindowLoaded(object sender, RoutedEventArgs e)
         {
             try
@@ -2396,29 +2843,7 @@ namespace SearchBrowser
             catch { }
             _leftPaneHost.SizeChanged += (s2, e2) => ApplyRoundedCornersToHost(_leftPaneHost);
             _rightPaneHost.SizeChanged += (s2, e2) => ApplyRoundedCornersToHost(_rightPaneHost);
-            try
-            {
-                // Ultra-lean Chromium/WebView2 memory profile (shared across normal & private sessions):
-                // - --process-per-site + --renderer-process-limit=2 (max 2 renderers, same-site tabs share process)
-                // - --disable-back-forward-cache (stops holding full old-page DOMs & decoded images in RAM)
-                // - --js-flags=--max-old-space-size=128,--optimize-for-size (V8 compact mode & heap cap)
-                // - --force-gpu-mem-available-mb=128 (caps GPU texture cache bloat while preserving 60fps video decode)
-                // - 16MB disk/media cache caps & disabled crashpad/telemetry/Edge background utilities
-                string browserArgs = BrowserTab.BuildLeanWebViewArgs(Store.Prefs != null && Store.Prefs.BlockWebRtcLeaks);
-                var options = new CoreWebView2EnvironmentOptions
-                {
-                    AdditionalBrowserArguments = browserArgs,
-                    AllowSingleSignOnUsingOSPrimaryAccount = false,
-                    AreBrowserExtensionsEnabled = (Store.Extensions != null && Store.Extensions.Count > 0)
-                };
-
-                _sharedEnv = await CoreWebView2Environment.CreateAsync(null, Store.WebViewDataDir, options);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("WebView2 failed to initialize: " + ex.Message, "Search Browser", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
+            EnsureNativeBlankStageBuilt();
 
             if (Store.SessionTabs != null && Store.SessionTabs.Count > 0)
             {
@@ -2577,6 +3002,11 @@ namespace SearchBrowser
                         UpdateHelmButtons();
                         UpdateBookmarkDoorIcon();
                         UpdateAlwaysAddressLine();
+                        // If active native-blank tab just navigated to a real page, seamlessly wake WebView2 now!
+                        if (!t.IsWebViewInitialized && !ShouldRenderNativeBlankTab(t))
+                        {
+                            var _ = SelectTabAsync(t);
+                        }
                     }
                     ScheduleSaveSession();
                 });
@@ -3409,7 +3839,7 @@ namespace SearchBrowser
         private async Task CheckForUpdatesAsync()
         {
             const string repo = "busyflow/Search-Browser";
-            const string currentVersion = "0.0022";
+            const string currentVersion = "0.0023";
             try
             {
                 System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12;
@@ -3608,10 +4038,39 @@ namespace SearchBrowser
         {
             if (tab == null) return;
             var prevActive = _activeTab;
+
+            // Official PERF-NOTES.md 41 MB at-rest architecture:
+            // Draw blank New Tab 100% natively in WPF so WebView2 never even starts until a real page is visited!
+            if (ShouldRenderNativeBlankTab(tab))
+            {
+                EnsureNativeBlankStageBuilt();
+                if (prevActive != null && prevActive != tab) prevActive.SetBackgroundMemoryState(true);
+                _activeTab = tab;
+                _splitLeftTab = tab;
+                _leftPaneHost.Child = _nativeBlankStage;
+                RefreshNativeBlankStageVisuals(true);
+                _mruTabs.Remove(tab);
+                _mruTabs.Insert(0, tab);
+                _veilBanner.Visibility = Visibility.Collapsed;
+                _editingTabId = null;
+                CloseSiteCard();
+                Title = "New Tab — Search";
+                UpdateHelmButtons();
+                UpdateBookmarkDoorIcon();
+                UpdateMediaPlayerCard();
+                UpdateAlwaysAddressLine();
+                RefreshTabRows();
+                ScheduleSaveSession();
+                Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => { if (_blankInput != null) _blankInput.Focus(); }));
+                return;
+            }
+
             Border targetHost = _leftPaneHost;
             if (_isSplitView && _activeTab == _splitRightTab && tab != _splitLeftTab) targetHost = _rightPaneHost;
             else if (_isSplitView && tab == _splitRightTab) targetHost = _rightPaneHost;
-            await tab.EnsureAwakeAsync(_sharedEnv, targetHost);
+            var env = await EnsureSharedEnvAsync();
+            if (env == null) { _activeTab = tab; RefreshTabRows(); return; }
+            await tab.EnsureAwakeAsync(env, targetHost);
             if (tab.WebView == null) { _activeTab = tab; RefreshTabRows(); return; }
 
             if (_isSplitView)
@@ -3787,7 +4246,9 @@ namespace SearchBrowser
                 _allTabs.Add(second);
             }
 
-            await second.EnsureAwakeAsync(_sharedEnv, _rightPaneHost);
+            var env = await EnsureSharedEnvAsync();
+            if (env == null) return;
+            await second.EnsureAwakeAsync(env, _rightPaneHost);
             _isSplitView = true;
             _splitLeftTab = _activeTab;
             _splitRightTab = second;
@@ -3852,7 +4313,9 @@ namespace SearchBrowser
         private async Task OpenTabInSplitViewAsync(BrowserTab other, bool putOnLeft)
         {
             if (other == null || other == _activeTab) return;
-            await other.EnsureAwakeAsync(_sharedEnv, putOnLeft ? _leftPaneHost : _rightPaneHost);
+            var env = await EnsureSharedEnvAsync();
+            if (env == null) return;
+            await other.EnsureAwakeAsync(env, putOnLeft ? _leftPaneHost : _rightPaneHost);
             _isSplitView = true;
             if (putOnLeft)
             {
@@ -4460,6 +4923,7 @@ namespace SearchBrowser
                 }
             }
 
+            RefreshNativeBlankStageVisuals(false);
             UpdateMediaPlayerCard();
             RefreshTabRows();
         }
